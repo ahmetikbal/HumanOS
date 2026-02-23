@@ -31,7 +31,7 @@ export default function DashboardPage() {
     const { user, loading } = useAuth();
     const router = useRouter();
     const { tasks, addTask, completeTask, deleteTask, batchUpdateTasks } = useTasks();
-    const { settings } = useSettings();
+    const { settings, addFixedEvent } = useSettings();
     const { currentTask, upcomingTasks, schedule } = useSchedule();
 
     useEffect(() => {
@@ -99,7 +99,7 @@ export default function DashboardPage() {
                         </p>
                     </div>
                     <div className="flex items-center gap-3">
-                        <TaskInputModal onSubmit={addTask} />
+                        <TaskInputModal onSubmit={addTask} onAddFixedEvent={addFixedEvent} />
                         <PanicButton
                             tasks={tasks}
                             settings={settings}

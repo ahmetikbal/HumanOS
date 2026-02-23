@@ -8,6 +8,7 @@ import {
     Cpu,
     LayoutDashboard,
     CalendarDays,
+    ListTodo,
     BarChart3,
     Settings,
     LogOut,
@@ -15,6 +16,7 @@ import {
 
 const navItems = [
     { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+    { href: '/processes', label: 'Processes', icon: ListTodo },
     { href: '/timeline', label: 'Timeline', icon: CalendarDays },
     { href: '/review', label: 'Review', icon: BarChart3 },
     { href: '/settings', label: 'Settings', icon: Settings },
@@ -51,8 +53,8 @@ export function Navbar() {
                                         variant={isActive ? 'secondary' : 'ghost'}
                                         size="sm"
                                         className={`gap-2 text-xs font-medium cursor-pointer ${isActive
-                                                ? 'bg-primary/10 text-primary'
-                                                : 'text-muted-foreground hover:text-foreground'
+                                            ? 'bg-primary/10 text-primary'
+                                            : 'text-muted-foreground hover:text-foreground'
                                             }`}
                                     >
                                         <item.icon className="w-3.5 h-3.5" />
