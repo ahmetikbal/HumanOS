@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { Navbar } from '@/components/navbar';
 import { useSettings } from '@/hooks/useSettings';
-import { useTasks } from '@/hooks/useTasks';
+
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -30,12 +30,13 @@ export default function SettingsPage() {
     const { user, loading } = useAuth();
     const router = useRouter();
     const { settings, updateSettings, addFixedEvent, removeFixedEvent } = useSettings();
-    useTasks();
+
 
     // Local form state
     const [wakeTime, setWakeTime] = useState(settings.wakeTime);
     const [bedTime, setBedTime] = useState(settings.bedTime);
     const [targetWakeTime, setTargetWakeTime] = useState(settings.targetWakeTime ?? '');
+    const [saving, setSaving] = useState(false);
     const [shiftRate, setShiftRate] = useState(settings.shiftRateMin.toString());
 
     // Fixed event form
@@ -59,12 +60,19 @@ export default function SettingsPage() {
     if (loading || !user) return null;
 
     const handleSaveTime = async () => {
-        await updateSettings({
-            wakeTime,
-            bedTime,
-            targetWakeTime: targetWakeTime || undefined,
-            shiftRateMin: parseInt(shiftRate) || 15,
-        });
+        setSaving(true);
+        try {
+            await updateSettings({
+                wakeTime,
+                bedTime,
+                targetWakeTime: targetWakeTime || undefined,
+                shiftRateMin: parseInt(shiftRate) || 15,
+            });
+        } catch (err) {
+            console.error('Failed to save settings:', err);
+        } finally {
+            setSaving(false);
+        }
     };
 
     const handleAddEvent = async () => {
@@ -205,8 +213,8 @@ export default function SettingsPage() {
                                 )}
                             </div>
 
-                            <Button onClick={handleSaveTime} className="w-full cursor-pointer">
-                                Save Sleep Settings
+                            <Button onClick={handleSaveTime} disabled={saving} className="w-full cursor-pointer">
+                                {saving ? 'Saving...' : 'Save Sleep Settings'}
                             </Button>
                         </CardContent>
                     </Card>
@@ -283,8 +291,8 @@ export default function SettingsPage() {
                                             key={i}
                                             onClick={() => toggleDay(i)}
                                             className={`text-[10px] w-9 h-7 rounded-md font-medium transition-colors cursor-pointer ${eventDays.includes(i)
-                                                    ? 'bg-primary text-primary-foreground'
-                                                    : 'bg-background/30 text-muted-foreground hover:bg-background/50'
+                                                ? 'bg-primary text-primary-foreground'
+                                                : 'bg-background/30 text-muted-foreground hover:bg-background/50'
                                                 }`}
                                         >
                                             {name}

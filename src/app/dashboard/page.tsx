@@ -2,7 +2,7 @@
 
 import { useAuth } from '@/lib/auth-context';
 import { useRouter } from 'next/navigation';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Navbar } from '@/components/navbar';
 import { CurrentTask } from '@/components/current-task';
 import { PanicButton } from '@/components/panic-button';
@@ -10,17 +10,18 @@ import { TaskInputModal } from '@/components/task-input-modal';
 import { useTasks } from '@/hooks/useTasks';
 import { useSettings } from '@/hooks/useSettings';
 import { useSchedule } from '@/hooks/useSchedule';
-import { useStore } from '@/store/useStore';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import {
     Cpu,
     Clock,
     ListTodo,
-    ChevronRight,
     Activity,
     Zap,
     BarChart3,
+    Trash2,
+    CheckCircle,
 } from 'lucide-react';
 import { format, differenceInMinutes } from 'date-fns';
 import { ScheduleSlot } from '@/types';
@@ -29,7 +30,7 @@ import { PanicModeResult } from '@/lib/panic-mode';
 export default function DashboardPage() {
     const { user, loading } = useAuth();
     const router = useRouter();
-    const { tasks, addTask, completeTask } = useTasks();
+    const { tasks, addTask, completeTask, deleteTask, batchUpdateTasks } = useTasks();
     const { settings } = useSettings();
     const { currentTask, upcomingTasks, schedule } = useSchedule();
 
@@ -46,7 +47,8 @@ export default function DashboardPage() {
     const completedToday = tasks.filter(
         (t) =>
             t.status === 'Completed' &&
-            format(t.createdAt, 'yyyy-MM-dd') === format(new Date(), 'yyyy-MM-dd')
+            t.completedAt &&
+            format(t.completedAt, 'yyyy-MM-dd') === format(new Date(), 'yyyy-MM-dd')
     ).length;
 
     const totalScheduledMinutes = schedule?.slots
@@ -65,8 +67,20 @@ export default function DashboardPage() {
             : 0;
 
     const handlePanicExecuted = async (result: PanicModeResult) => {
-        // Update tasks in store (Firestore sync will happen via useTasks)
-        useStore.getState().setTasks(result.tasks);
+        // Sync all changed tasks to Firestore
+        try {
+            await batchUpdateTasks(result.tasks);
+        } catch (err) {
+            console.error('Failed to sync panic mode to Firestore:', err);
+        }
+    };
+
+    const handleDeleteTask = async (taskId: string) => {
+        try {
+            await deleteTask(taskId);
+        } catch (err) {
+            console.error('Failed to delete task:', err);
+        }
     };
 
     return (
@@ -167,7 +181,7 @@ export default function DashboardPage() {
                                     activeTasks.map((task) => (
                                         <div
                                             key={task.id}
-                                            className="flex items-center justify-between p-2 rounded-lg bg-background/30 hover:bg-background/50 transition-colors"
+                                            className="flex items-center justify-between p-2 rounded-lg bg-background/30 hover:bg-background/50 transition-colors group"
                                         >
                                             <div className="flex items-center gap-2 min-w-0">
                                                 <Badge
@@ -178,9 +192,29 @@ export default function DashboardPage() {
                                                 </Badge>
                                                 <span className="text-xs truncate">{task.title}</span>
                                             </div>
-                                            <span className="text-[10px] text-muted-foreground font-mono flex-shrink-0 ml-2">
-                                                {task.duration}m
-                                            </span>
+                                            <div className="flex items-center gap-1.5 flex-shrink-0 ml-2">
+                                                <span className="text-[10px] text-muted-foreground font-mono">
+                                                    {task.duration}m
+                                                </span>
+                                                <Button
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    className="opacity-0 group-hover:opacity-100 transition-opacity h-6 w-6 p-0 text-chart-2 hover:text-chart-2 cursor-pointer"
+                                                    onClick={() => completeTask(task.id)}
+                                                    title="Complete"
+                                                >
+                                                    <CheckCircle className="w-3 h-3" />
+                                                </Button>
+                                                <Button
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    className="opacity-0 group-hover:opacity-100 transition-opacity h-6 w-6 p-0 text-destructive hover:text-destructive cursor-pointer"
+                                                    onClick={() => handleDeleteTask(task.id)}
+                                                    title="Delete"
+                                                >
+                                                    <Trash2 className="w-3 h-3" />
+                                                </Button>
+                                            </div>
                                         </div>
                                     ))
                                 )}

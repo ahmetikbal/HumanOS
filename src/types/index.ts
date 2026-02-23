@@ -16,6 +16,7 @@ export interface Task {
     isFixed: boolean; // true for events like Gym/Dinner
     parentId?: string; // if split from a larger task
     createdAt: Date;
+    completedAt?: Date; // when the task was completed
 }
 
 export interface FixedEvent {

@@ -37,9 +37,13 @@ export default function ReviewPage() {
     const weekEnd = endOfWeek(now, { weekStartsOn: 1 });
 
     // Filter tasks for this week
-    const weekTasks = tasks.filter((t) =>
-        isWithinInterval(t.createdAt, { start: weekStart, end: weekEnd })
-    );
+    // Use completedAt for completed tasks, createdAt for all others
+    const weekTasks = tasks.filter((t) => {
+        if (t.status === 'Completed' && t.completedAt) {
+            return isWithinInterval(t.completedAt, { start: weekStart, end: weekEnd });
+        }
+        return isWithinInterval(t.createdAt, { start: weekStart, end: weekEnd });
+    });
 
     const completed = weekTasks.filter((t) => t.status === 'Completed');
     const dropped = weekTasks.filter((t) => t.status === 'Dropped');

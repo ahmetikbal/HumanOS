@@ -4,7 +4,6 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import {
     Dialog,
@@ -39,39 +38,59 @@ export function TaskInputModal({ onSubmit }: TaskInputModalProps) {
     const [priority, setPriority] = useState<Priority>('Medium');
     const [isFixed, setIsFixed] = useState(false);
     const [submitting, setSubmitting] = useState(false);
+    const [error, setError] = useState('');
 
-    const handleSubmit = async () => {
-        if (!title.trim()) return;
-        setSubmitting(true);
-
-        const deadline = new Date(`${deadlineDate}T${deadlineTime}`);
-        const durationNum = parseInt(duration) || 30;
-
-        await onSubmit({
-            title: title.trim(),
-            duration: durationNum,
-            deadline,
-            priority,
-            status: 'Pending',
-            isFixed,
-        });
-
-        // Reset form
+    const resetForm = () => {
         setTitle('');
         setDuration('30');
         setDeadlineDate(format(addDays(new Date(), 1), 'yyyy-MM-dd'));
         setDeadlineTime('23:59');
         setPriority('Medium');
         setIsFixed(false);
-        setSubmitting(false);
-        setOpen(false);
+        setError('');
+    };
+
+    const handleSubmit = async () => {
+        if (!title.trim()) return;
+        setSubmitting(true);
+        setError('');
+
+        try {
+            const deadline = new Date(`${deadlineDate}T${deadlineTime}`);
+            const durationNum = parseInt(duration) || 30;
+
+            await onSubmit({
+                title: title.trim(),
+                duration: durationNum,
+                deadline,
+                priority,
+                status: 'Pending',
+                isFixed,
+            });
+
+            resetForm();
+            setOpen(false);
+        } catch (err) {
+            console.error('Failed to add task:', err);
+            setError('Failed to add task. Please try again.');
+        } finally {
+            setSubmitting(false);
+        }
+    };
+
+    const handleOpenChange = (newOpen: boolean) => {
+        setOpen(newOpen);
+        if (!newOpen) {
+            resetForm();
+            setSubmitting(false);
+        }
     };
 
     const durationNum = parseInt(duration) || 0;
     const isInterrupt = durationNum > 0 && durationNum <= 2;
 
     return (
-        <Dialog open={open} onOpenChange={setOpen}>
+        <Dialog open={open} onOpenChange={handleOpenChange}>
             <DialogTrigger asChild>
                 <Button
                     size="sm"
@@ -95,6 +114,13 @@ export function TaskInputModal({ onSubmit }: TaskInputModalProps) {
                 </DialogHeader>
 
                 <div className="grid gap-4 py-2">
+                    {/* Error Message */}
+                    {error && (
+                        <div className="text-xs text-destructive bg-destructive/10 border border-destructive/20 rounded-lg px-3 py-2 font-mono">
+                            {error}
+                        </div>
+                    )}
+
                     {/* Title */}
                     <div className="grid gap-2">
                         <Label htmlFor="title" className="text-xs font-medium">
@@ -106,6 +132,7 @@ export function TaskInputModal({ onSubmit }: TaskInputModalProps) {
                             onChange={(e) => setTitle(e.target.value)}
                             placeholder="e.g. Write report, Gym session..."
                             className="bg-background/50"
+                            onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}
                         />
                     </div>
 
@@ -194,7 +221,7 @@ export function TaskInputModal({ onSubmit }: TaskInputModalProps) {
                 <DialogFooter>
                     <Button
                         variant="ghost"
-                        onClick={() => setOpen(false)}
+                        onClick={() => handleOpenChange(false)}
                         className="cursor-pointer"
                     >
                         Cancel
