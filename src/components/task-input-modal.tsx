@@ -24,6 +24,7 @@ import {
 import { Plus, Clock, Flag, Calendar, Zap, Pin } from 'lucide-react';
 import { Priority, Task, FixedEvent } from '@/types';
 import { format, addDays } from 'date-fns';
+import { formatDuration } from '@/lib/scheduler';
 
 interface TaskInputModalProps {
     onSubmit: (task: Omit<Task, 'id' | 'createdAt'>) => Promise<void>;
@@ -41,8 +42,9 @@ export function TaskInputModal({ onSubmit, onAddFixedEvent }: TaskInputModalProp
     const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState('');
 
-    // Task-specific
-    const [duration, setDuration] = useState('30');
+    // Task-specific — separate hours and minutes
+    const [durationHours, setDurationHours] = useState('0');
+    const [durationMinutes, setDurationMinutes] = useState('30');
     const [deadlineDate, setDeadlineDate] = useState(format(addDays(new Date(), 1), 'yyyy-MM-dd'));
     const [deadlineTime, setDeadlineTime] = useState('23:59');
     const [priority, setPriority] = useState<Priority>('Medium');
@@ -55,7 +57,8 @@ export function TaskInputModal({ onSubmit, onAddFixedEvent }: TaskInputModalProp
     const resetForm = () => {
         setTitle('');
         setIsFixed(false);
-        setDuration('30');
+        setDurationHours('0');
+        setDurationMinutes('30');
         setDeadlineDate(format(addDays(new Date(), 1), 'yyyy-MM-dd'));
         setDeadlineTime('23:59');
         setPriority('Medium');
@@ -103,7 +106,12 @@ export function TaskInputModal({ onSubmit, onAddFixedEvent }: TaskInputModalProp
             } else {
                 // Create a regular task
                 const deadline = new Date(`${deadlineDate}T${deadlineTime}`);
-                const durationNum = parseInt(duration) || 30;
+                const durationNum = (parseInt(durationHours) || 0) * 60 + (parseInt(durationMinutes) || 0);
+                if (durationNum <= 0) {
+                    setError('Duration must be at least 1 minute.');
+                    setSubmitting(false);
+                    return;
+                }
 
                 await onSubmit({
                     title: title.trim(),
@@ -133,8 +141,8 @@ export function TaskInputModal({ onSubmit, onAddFixedEvent }: TaskInputModalProp
         }
     };
 
-    const durationNum = parseInt(duration) || 0;
-    const isInterrupt = !isFixed && durationNum > 0 && durationNum <= 2;
+    const totalMinutes = (parseInt(durationHours) || 0) * 60 + (parseInt(durationMinutes) || 0);
+    const isInterrupt = !isFixed && totalMinutes > 0 && totalMinutes <= 15;
 
     const canSubmit = isFixed
         ? title.trim() && eventStart && eventEnd && eventDays.length > 0
@@ -258,8 +266,8 @@ export function TaskInputModal({ onSubmit, onAddFixedEvent }: TaskInputModalProp
                                             key={i}
                                             onClick={() => toggleDay(i)}
                                             className={`text-[10px] flex-1 h-8 rounded-md font-medium transition-all duration-150 cursor-pointer ${eventDays.includes(i)
-                                                    ? 'bg-chart-4 text-white scale-105 shadow-md'
-                                                    : 'bg-background/30 text-muted-foreground hover:bg-background/50'
+                                                ? 'bg-chart-4 text-white scale-105 shadow-md'
+                                                : 'bg-background/30 text-muted-foreground hover:bg-background/50'
                                                 }`}
                                         >
                                             {name}
@@ -271,23 +279,46 @@ export function TaskInputModal({ onSubmit, onAddFixedEvent }: TaskInputModalProp
                     ) : (
                         /* ─── Regular Task Fields ─── */
                         <>
-                            {/* Duration */}
+                            {/* Duration — Hours + Minutes */}
                             <div className="grid gap-2">
-                                <Label htmlFor="duration" className="text-xs font-medium flex items-center gap-2">
+                                <Label className="text-xs font-medium flex items-center gap-2">
                                     <Clock className="w-3 h-3" />
-                                    Duration (minutes)
+                                    Duration
+                                    {totalMinutes > 0 && (
+                                        <span className="text-muted-foreground font-mono text-[10px] ml-auto">
+                                            = {formatDuration(totalMinutes)}
+                                        </span>
+                                    )}
                                 </Label>
-                                <Input
-                                    id="duration"
-                                    type="number"
-                                    min="1"
-                                    value={duration}
-                                    onChange={(e) => setDuration(e.target.value)}
-                                    className="bg-background/50"
-                                />
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div>
+                                        <Label htmlFor="dur-hours" className="text-[10px] text-muted-foreground mb-1 block">Hours</Label>
+                                        <Input
+                                            id="dur-hours"
+                                            type="number"
+                                            min="0"
+                                            max="24"
+                                            value={durationHours}
+                                            onChange={(e) => setDurationHours(e.target.value)}
+                                            className="bg-background/50"
+                                        />
+                                    </div>
+                                    <div>
+                                        <Label htmlFor="dur-min" className="text-[10px] text-muted-foreground mb-1 block">Minutes</Label>
+                                        <Input
+                                            id="dur-min"
+                                            type="number"
+                                            min="0"
+                                            max="59"
+                                            value={durationMinutes}
+                                            onChange={(e) => setDurationMinutes(e.target.value)}
+                                            className="bg-background/50"
+                                        />
+                                    </div>
+                                </div>
                                 {isInterrupt && (
                                     <p className="text-xs text-chart-4 font-mono mt-1">
-                                        ⚡ &lt;2min → Interrupt mode (Greedy scheduling)
+                                        ⚡ ≤15min → Interrupt mode (Greedy scheduling)
                                     </p>
                                 )}
                             </div>

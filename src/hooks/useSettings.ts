@@ -1,11 +1,26 @@
 'use client';
 
 import { useEffect } from 'react';
-import { doc, onSnapshot, updateDoc } from 'firebase/firestore';
+import { doc, onSnapshot, setDoc, deleteField } from 'firebase/firestore';
 import { getFirebaseDb } from '@/lib/firebase';
 import { useAuth } from '@/lib/auth-context';
 import { useStore } from '@/store/useStore';
 import { UserSettings, FixedEvent } from '@/types';
+
+// Remove undefined values from an object (Firestore rejects undefined)
+function stripUndefined(obj: Record<string, unknown>): Record<string, unknown> {
+    const result: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(obj)) {
+        if (value !== undefined) {
+            if (value && typeof value === 'object' && !Array.isArray(value) && !(value instanceof Date)) {
+                result[key] = stripUndefined(value as Record<string, unknown>);
+            } else {
+                result[key] = value;
+            }
+        }
+    }
+    return result;
+}
 
 export function useSettings() {
     const { user } = useAuth();
@@ -35,8 +50,8 @@ export function useSettings() {
         const db = getFirebaseDb();
         if (!db) return;
         const userDocRef = doc(db, 'users', user.uid);
-        const newSettings = { ...settings, ...updates };
-        await updateDoc(userDocRef, { settings: newSettings });
+        const newSettings = stripUndefined({ ...settings, ...updates } as unknown as Record<string, unknown>) as unknown as UserSettings;
+        await setDoc(userDocRef, { settings: newSettings }, { merge: true });
         updateSettingsStore(updates);
     };
 
@@ -52,5 +67,13 @@ export function useSettings() {
         await updateSettings({ fixedEvents: updatedEvents });
     };
 
-    return { settings, updateSettings, addFixedEvent, removeFixedEvent };
+    // Update a fixed event
+    const updateFixedEvent = async (eventId: string, updates: Partial<FixedEvent>) => {
+        const updatedEvents = settings.fixedEvents.map((e) =>
+            e.id === eventId ? { ...e, ...updates } : e
+        );
+        await updateSettings({ fixedEvents: updatedEvents });
+    };
+
+    return { settings, updateSettings, addFixedEvent, removeFixedEvent, updateFixedEvent };
 }

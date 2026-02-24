@@ -6,35 +6,46 @@ import { useEffect, useState } from 'react';
 import { Navbar } from '@/components/navbar';
 import { TaskInputModal } from '@/components/task-input-modal';
 import { TaskEditModal } from '@/components/task-edit-modal';
+import { FixedEventEditModal } from '@/components/fixed-event-edit-modal';
 import { useTasks } from '@/hooks/useTasks';
 import { useSettings } from '@/hooks/useSettings';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
-    ListTodo,
     Trash2,
     CheckCircle,
     Pencil,
     Filter,
     Pin,
     Clock,
-    Calendar,
+    ArrowUpDown,
+    ArrowUp,
+    ArrowDown,
 } from 'lucide-react';
 import { format } from 'date-fns';
-import { Task, TaskStatus } from '@/types';
+import { Task, FixedEvent } from '@/types';
+import { formatDuration } from '@/lib/scheduler';
 
 type FilterTab = 'all' | 'active' | 'completed' | 'dropped' | 'fixed-events';
+type SortKey = 'title' | 'priority' | 'duration' | 'deadline' | 'status';
+type SortDir = 'asc' | 'desc';
+
+const priorityOrder: Record<string, number> = { High: 3, Medium: 2, Low: 1 };
 
 export default function ProcessesPage() {
     const { user, loading } = useAuth();
     const router = useRouter();
     const { tasks, addTask, updateTask, deleteTask, completeTask } = useTasks();
-    const { settings, addFixedEvent, removeFixedEvent } = useSettings();
+    const { settings, addFixedEvent, removeFixedEvent, updateFixedEvent } = useSettings();
 
     const [filter, setFilter] = useState<FilterTab>('all');
     const [editTask, setEditTask] = useState<Task | null>(null);
     const [editOpen, setEditOpen] = useState(false);
+    const [editFixedEvent, setEditFixedEvent] = useState<FixedEvent | null>(null);
+    const [editFixedOpen, setEditFixedOpen] = useState(false);
+    const [sortKey, setSortKey] = useState<SortKey>('deadline');
+    const [sortDir, setSortDir] = useState<SortDir>('asc');
 
     useEffect(() => {
         if (!loading && !user) router.push('/');
@@ -55,6 +66,38 @@ export default function ProcessesPage() {
                 return true;
         }
     });
+
+    // Sort tasks
+    const sortedTasks = [...filteredTasks].sort((a, b) => {
+        let cmp = 0;
+        switch (sortKey) {
+            case 'title':
+                cmp = a.title.localeCompare(b.title);
+                break;
+            case 'priority':
+                cmp = (priorityOrder[a.priority] || 0) - (priorityOrder[b.priority] || 0);
+                break;
+            case 'duration':
+                cmp = a.duration - b.duration;
+                break;
+            case 'deadline':
+                cmp = a.deadline.getTime() - b.deadline.getTime();
+                break;
+            case 'status':
+                cmp = a.status.localeCompare(b.status);
+                break;
+        }
+        return sortDir === 'asc' ? cmp : -cmp;
+    });
+
+    const handleSort = (key: SortKey) => {
+        if (sortKey === key) {
+            setSortDir(sortDir === 'asc' ? 'desc' : 'asc');
+        } else {
+            setSortKey(key);
+            setSortDir('asc');
+        }
+    };
 
     const handleEdit = (task: Task) => {
         setEditTask(task);
@@ -78,6 +121,13 @@ export default function ProcessesPage() {
     ];
 
     const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+    const SortIcon = ({ col }: { col: SortKey }) => {
+        if (sortKey !== col) return <ArrowUpDown className="w-2.5 h-2.5 opacity-40" />;
+        return sortDir === 'asc'
+            ? <ArrowUp className="w-2.5 h-2.5 text-primary" />
+            : <ArrowDown className="w-2.5 h-2.5 text-primary" />;
+    };
 
     return (
         <div className="min-h-screen">
@@ -104,8 +154,8 @@ export default function ProcessesPage() {
                             key={tab.key}
                             onClick={() => setFilter(tab.key)}
                             className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer whitespace-nowrap ${filter === tab.key
-                                    ? 'bg-primary/10 text-primary border border-primary/20'
-                                    : 'text-muted-foreground hover:text-foreground hover:bg-background/50'
+                                ? 'bg-primary/10 text-primary border border-primary/20'
+                                : 'text-muted-foreground hover:text-foreground hover:bg-background/50'
                                 }`}
                         >
                             {tab.label}
@@ -149,14 +199,29 @@ export default function ProcessesPage() {
                                                     </div>
                                                 </div>
                                             </div>
-                                            <Button
-                                                variant="ghost"
-                                                size="sm"
-                                                onClick={() => removeFixedEvent(event.id)}
-                                                className="opacity-0 group-hover:opacity-100 transition-opacity text-destructive hover:text-destructive cursor-pointer"
-                                            >
-                                                <Trash2 className="w-3.5 h-3.5" />
-                                            </Button>
+                                            <div className="flex items-center gap-1">
+                                                <Button
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    onClick={() => {
+                                                        setEditFixedEvent(event);
+                                                        setEditFixedOpen(true);
+                                                    }}
+                                                    className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-foreground cursor-pointer h-7 w-7 p-0"
+                                                    title="Edit"
+                                                >
+                                                    <Pencil className="w-3.5 h-3.5" />
+                                                </Button>
+                                                <Button
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    onClick={() => removeFixedEvent(event.id)}
+                                                    className="opacity-0 group-hover:opacity-100 transition-opacity text-destructive hover:text-destructive cursor-pointer h-7 w-7 p-0"
+                                                    title="Delete"
+                                                >
+                                                    <Trash2 className="w-3.5 h-3.5" />
+                                                </Button>
+                                            </div>
                                         </div>
                                     ))}
                                 </div>
@@ -171,29 +236,54 @@ export default function ProcessesPage() {
                                 <Filter className="w-4 h-4 text-muted-foreground" />
                                 {filter === 'all' ? 'All Processes' : `${filter.charAt(0).toUpperCase() + filter.slice(1)} Processes`}
                                 <span className="text-[10px] text-muted-foreground font-normal ml-auto">
-                                    {filteredTasks.length} process{filteredTasks.length !== 1 ? 'es' : ''}
+                                    {sortedTasks.length} process{sortedTasks.length !== 1 ? 'es' : ''}
                                 </span>
                             </CardTitle>
                         </CardHeader>
                         <CardContent className="pb-4">
-                            {filteredTasks.length === 0 ? (
+                            {sortedTasks.length === 0 ? (
                                 <p className="text-xs text-muted-foreground font-mono text-center py-8">
                                     No{filter !== 'all' ? ` ${filter}` : ''} processes found.
                                 </p>
                             ) : (
                                 <div className="space-y-1">
-                                    {/* Header row */}
+                                    {/* Sortable Header row */}
                                     <div className="grid grid-cols-12 gap-2 px-3 py-2 text-[10px] text-muted-foreground font-mono uppercase tracking-wider">
-                                        <span className="col-span-4">Name</span>
-                                        <span className="col-span-1 text-center">PRI</span>
-                                        <span className="col-span-2 text-center">Duration</span>
-                                        <span className="col-span-2 text-center">Deadline</span>
-                                        <span className="col-span-1 text-center">Status</span>
+                                        <button
+                                            onClick={() => handleSort('title')}
+                                            className="col-span-4 flex items-center gap-1 cursor-pointer hover:text-foreground transition-colors"
+                                        >
+                                            Name <SortIcon col="title" />
+                                        </button>
+                                        <button
+                                            onClick={() => handleSort('priority')}
+                                            className="col-span-1 flex items-center justify-center gap-1 cursor-pointer hover:text-foreground transition-colors"
+                                        >
+                                            PRI <SortIcon col="priority" />
+                                        </button>
+                                        <button
+                                            onClick={() => handleSort('duration')}
+                                            className="col-span-2 flex items-center justify-center gap-1 cursor-pointer hover:text-foreground transition-colors"
+                                        >
+                                            Duration <SortIcon col="duration" />
+                                        </button>
+                                        <button
+                                            onClick={() => handleSort('deadline')}
+                                            className="col-span-2 flex items-center justify-center gap-1 cursor-pointer hover:text-foreground transition-colors"
+                                        >
+                                            Deadline <SortIcon col="deadline" />
+                                        </button>
+                                        <button
+                                            onClick={() => handleSort('status')}
+                                            className="col-span-1 flex items-center justify-center gap-1 cursor-pointer hover:text-foreground transition-colors"
+                                        >
+                                            Status <SortIcon col="status" />
+                                        </button>
                                         <span className="col-span-2 text-right">Actions</span>
                                     </div>
 
                                     {/* Task rows */}
-                                    {filteredTasks.map((task) => (
+                                    {sortedTasks.map((task) => (
                                         <TaskRow
                                             key={task.id}
                                             task={task}
@@ -210,6 +300,13 @@ export default function ProcessesPage() {
             </main>
 
             {/* Edit Modal */}
+            <FixedEventEditModal
+                event={editFixedEvent}
+                open={editFixedOpen}
+                onOpenChange={setEditFixedOpen}
+                onUpdate={updateFixedEvent}
+                onDelete={removeFixedEvent}
+            />
             <TaskEditModal
                 task={editTask}
                 open={editOpen}
@@ -259,7 +356,7 @@ function TaskRow({
 
             {/* Duration */}
             <div className="col-span-2 text-center">
-                <span className="text-xs text-muted-foreground font-mono">{task.duration}m</span>
+                <span className="text-xs text-muted-foreground font-mono">{formatDuration(task.duration)}</span>
             </div>
 
             {/* Deadline */}
@@ -272,9 +369,9 @@ function TaskRow({
             {/* Status */}
             <div className="col-span-1 flex justify-center">
                 <span className={`text-[9px] px-1.5 py-0.5 rounded font-medium ${task.status === 'Completed' ? 'bg-chart-2/10 text-chart-2' :
-                        task.status === 'Dropped' ? 'bg-destructive/10 text-destructive' :
-                            isOverdue ? 'bg-destructive/10 text-destructive' :
-                                'bg-primary/10 text-primary'
+                    task.status === 'Dropped' ? 'bg-destructive/10 text-destructive' :
+                        isOverdue ? 'bg-destructive/10 text-destructive' :
+                            'bg-primary/10 text-primary'
                     }`}>
                     {task.status === 'In-Progress' ? 'Active' : task.status}
                 </span>

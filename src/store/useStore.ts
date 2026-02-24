@@ -32,7 +32,7 @@ export const useStore = create<HumanOSState>((set, get) => ({
     settings: {
         wakeTime: '07:00',
         bedTime: '23:00',
-        targetWakeTime: undefined,
+        targetWakeTime: '',
         shiftRateMin: 15,
         panicModeActive: false,
         fixedEvents: [],

@@ -10,6 +10,7 @@ import { TaskInputModal } from '@/components/task-input-modal';
 import { useTasks } from '@/hooks/useTasks';
 import { useSettings } from '@/hooks/useSettings';
 import { useSchedule } from '@/hooks/useSchedule';
+import { formatDuration } from '@/lib/scheduler';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -194,7 +195,7 @@ export default function DashboardPage() {
                                             </div>
                                             <div className="flex items-center gap-1.5 flex-shrink-0 ml-2">
                                                 <span className="text-[10px] text-muted-foreground font-mono">
-                                                    {task.duration}m
+                                                    {formatDuration(task.duration)}
                                                 </span>
                                                 <Button
                                                     variant="ghost"
@@ -279,7 +280,7 @@ function UpcomingTaskCard({
                 <span>
                     {format(task.timeStart, 'HH:mm')} → {format(task.timeEnd, 'HH:mm')}
                 </span>
-                <span className="ml-auto">{duration}m</span>
+                <span className="ml-auto">{formatDuration(duration)}</span>
             </div>
         </div>
     );

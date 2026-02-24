@@ -6,6 +6,7 @@ import { useEffect, useMemo } from 'react';
 import { Navbar } from '@/components/navbar';
 import { useTasks } from '@/hooks/useTasks';
 import { useSettings } from '@/hooks/useSettings';
+import { formatDuration } from '@/lib/scheduler';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
@@ -222,7 +223,7 @@ export default function ReviewPage() {
                                             <span className="text-xs">{task.title}</span>
                                         </div>
                                         <span className="text-[10px] text-muted-foreground font-mono">
-                                            {task.duration}m
+                                            {formatDuration(task.duration)}
                                         </span>
                                     </div>
                                 ))
@@ -256,7 +257,7 @@ export default function ReviewPage() {
                                             </span>
                                         </div>
                                         <span className="text-[10px] text-muted-foreground font-mono">
-                                            {task.duration}m
+                                            {formatDuration(task.duration)}
                                         </span>
                                     </div>
                                 ))

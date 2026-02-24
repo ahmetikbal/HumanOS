@@ -22,6 +22,7 @@ import {
 import { Pencil, Clock, Flag, Calendar, Trash2 } from 'lucide-react';
 import { Priority, Task } from '@/types';
 import { format } from 'date-fns';
+import { formatDuration } from '@/lib/scheduler';
 
 interface TaskEditModalProps {
     task: Task | null;
@@ -34,7 +35,8 @@ interface TaskEditModalProps {
 
 export function TaskEditModal({ task, open, onOpenChange, onUpdate, onDelete, onComplete }: TaskEditModalProps) {
     const [title, setTitle] = useState('');
-    const [duration, setDuration] = useState('');
+    const [durationHours, setDurationHours] = useState('0');
+    const [durationMinutes, setDurationMinutes] = useState('30');
     const [deadlineDate, setDeadlineDate] = useState('');
     const [deadlineTime, setDeadlineTime] = useState('');
     const [priority, setPriority] = useState<Priority>('Medium');
@@ -45,7 +47,8 @@ export function TaskEditModal({ task, open, onOpenChange, onUpdate, onDelete, on
     useEffect(() => {
         if (task) {
             setTitle(task.title);
-            setDuration(task.duration.toString());
+            setDurationHours(Math.floor(task.duration / 60).toString());
+            setDurationMinutes((task.duration % 60).toString());
             setDeadlineDate(format(task.deadline, 'yyyy-MM-dd'));
             setDeadlineTime(format(task.deadline, 'HH:mm'));
             setPriority(task.priority);
@@ -55,16 +58,21 @@ export function TaskEditModal({ task, open, onOpenChange, onUpdate, onDelete, on
 
     if (!task) return null;
 
+    const totalMinutes = (parseInt(durationHours) || 0) * 60 + (parseInt(durationMinutes) || 0);
+
     const handleSave = async () => {
         if (!title.trim()) return;
+        if (totalMinutes <= 0) {
+            setError('Duration must be at least 1 minute.');
+            return;
+        }
         setSaving(true);
         setError('');
         try {
             const deadline = new Date(`${deadlineDate}T${deadlineTime}`);
-            const durationNum = parseInt(duration) || 30;
             await onUpdate(task.id, {
                 title: title.trim(),
-                duration: durationNum,
+                duration: totalMinutes,
                 deadline,
                 priority,
             });
@@ -141,21 +149,45 @@ export function TaskEditModal({ task, open, onOpenChange, onUpdate, onDelete, on
                         />
                     </div>
 
-                    {/* Duration */}
+                    {/* Duration — Hours + Minutes */}
                     <div className="grid gap-2">
-                        <Label htmlFor="edit-duration" className="text-xs font-medium flex items-center gap-2">
+                        <Label className="text-xs font-medium flex items-center gap-2">
                             <Clock className="w-3 h-3" />
-                            Duration (minutes)
+                            Duration
+                            {totalMinutes > 0 && (
+                                <span className="text-muted-foreground font-mono text-[10px] ml-auto">
+                                    = {formatDuration(totalMinutes)}
+                                </span>
+                            )}
                         </Label>
-                        <Input
-                            id="edit-duration"
-                            type="number"
-                            min="1"
-                            value={duration}
-                            onChange={(e) => setDuration(e.target.value)}
-                            className="bg-background/50"
-                            disabled={!isActive}
-                        />
+                        <div className="grid grid-cols-2 gap-3">
+                            <div>
+                                <Label htmlFor="edit-dur-hours" className="text-[10px] text-muted-foreground mb-1 block">Hours</Label>
+                                <Input
+                                    id="edit-dur-hours"
+                                    type="number"
+                                    min="0"
+                                    max="24"
+                                    value={durationHours}
+                                    onChange={(e) => setDurationHours(e.target.value)}
+                                    className="bg-background/50"
+                                    disabled={!isActive}
+                                />
+                            </div>
+                            <div>
+                                <Label htmlFor="edit-dur-min" className="text-[10px] text-muted-foreground mb-1 block">Minutes</Label>
+                                <Input
+                                    id="edit-dur-min"
+                                    type="number"
+                                    min="0"
+                                    max="59"
+                                    value={durationMinutes}
+                                    onChange={(e) => setDurationMinutes(e.target.value)}
+                                    className="bg-background/50"
+                                    disabled={!isActive}
+                                />
+                            </div>
+                        </div>
                     </div>
 
                     {/* Deadline */}
