@@ -41,6 +41,7 @@ export function TaskInputModal({ onSubmit, onAddFixedEvent }: TaskInputModalProp
     const [isFixed, setIsFixed] = useState(false);
     const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState('');
+    const [description, setDescription] = useState('');
 
     // Task-specific — separate hours and minutes
     const [durationHours, setDurationHours] = useState('0');
@@ -66,6 +67,7 @@ export function TaskInputModal({ onSubmit, onAddFixedEvent }: TaskInputModalProp
         setEventEnd('13:00');
         setEventDays([]);
         setError('');
+        setDescription('');
     };
 
     const toggleDay = (day: number) => {
@@ -115,6 +117,7 @@ export function TaskInputModal({ onSubmit, onAddFixedEvent }: TaskInputModalProp
 
                 await onSubmit({
                     title: title.trim(),
+                    description: description.trim() || undefined,
                     duration: durationNum,
                     deadline,
                     priority,
@@ -214,6 +217,22 @@ export function TaskInputModal({ onSubmit, onAddFixedEvent }: TaskInputModalProp
                             onKeyDown={(e) => e.key === 'Enter' && canSubmit && handleSubmit()}
                         />
                     </div>
+
+                    {!isFixed && (
+                        <div className="grid gap-2">
+                            <Label htmlFor="description" className="text-xs font-medium">
+                                Description <span className="text-muted-foreground font-normal">(optional)</span>
+                            </Label>
+                            <textarea
+                                id="description"
+                                value={description}
+                                onChange={(e) => setDescription(e.target.value)}
+                                placeholder="Notes, links, context..."
+                                className="flex min-h-[60px] w-full rounded-md border border-input bg-background/50 px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 resize-none"
+                                rows={2}
+                            />
+                        </div>
+                    )}
 
                     {isFixed ? (
                         /* ─── Fixed Event Fields ─── */

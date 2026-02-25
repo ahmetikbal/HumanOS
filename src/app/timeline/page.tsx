@@ -44,6 +44,10 @@ const slotConfig: Record<
     Free: { icon: Clock, colorClass: 'slot-free', label: 'Free' },
 };
 
+const PX_PER_HOUR = 60;
+const MIN_SLOT_HEIGHT = 32;
+const SLOT_GAP = 2;
+
 export default function TimelinePage() {
     const { user, loading } = useAuth();
     const router = useRouter();
@@ -75,21 +79,60 @@ export default function TimelinePage() {
         return generateSchedule(tasks, settings, selectedDate);
     }, [tasks, settings, selectedDate]);
 
-    if (loading || !user) return null;
-
-    // Filter out zero-time slots
-    const slots = schedule?.slots?.filter(
-        (s) => differenceInMinutes(s.timeEnd, s.timeStart) > 0
-    ) ?? [];
-
-    // Parse wake/bed for positioning
-    const wakeHour = parseInt(settings.wakeTime.split(':')[0]);
-    const wakeMin = parseInt(settings.wakeTime.split(':')[1]);
-    const bedHour = parseInt(settings.bedTime.split(':')[0]);
-    const bedMin = parseInt(settings.bedTime.split(':')[1]);
+    // Parse wake/bed for positioning (must be before useMemo below)
+    const wakeHour = parseInt(settings.wakeTime.split(':')[0]) || 7;
+    const wakeMin = parseInt(settings.wakeTime.split(':')[1]) || 0;
+    const bedHour = parseInt(settings.bedTime.split(':')[0]) || 23;
+    const bedMin = parseInt(settings.bedTime.split(':')[1]) || 0;
     const dayStartMin = wakeHour * 60 + wakeMin;
     const dayEndMin = bedHour * 60 + bedMin;
-    const dayLengthMin = dayEndMin - dayStartMin;
+    const dayLengthMin = dayEndMin - dayStartMin || 1;
+    const totalHeightPx = ((dayEndMin - dayStartMin) / 60) * PX_PER_HOUR;
+
+    // Filter out zero-time slots
+    const slots = useMemo(() => {
+        return schedule?.slots?.filter(
+            (s) => differenceInMinutes(s.timeEnd, s.timeStart) > 0
+        ) ?? [];
+    }, [schedule]);
+
+    // Compute slot positions with overlap prevention — ALL hooks must be before early return
+    const slotPositions = useMemo(() => {
+        const positions: { topPx: number; heightPx: number }[] = [];
+        let lastBottom = 0;
+
+        for (let i = 0; i < slots.length; i++) {
+            const slot = slots[i];
+            const mins = getHours(slot.timeStart) * 60 + getMinutes(slot.timeStart);
+            const pct = Math.max(0, Math.min(1, (mins - dayStartMin) / dayLengthMin));
+            let topPx = pct * totalHeightPx;
+
+            const endMins = getHours(slot.timeEnd) * 60 + getMinutes(slot.timeEnd);
+            const endPct = Math.max(0, Math.min(1, (endMins - dayStartMin) / dayLengthMin));
+            const bottomPx = endPct * totalHeightPx;
+            const heightPx = Math.max(MIN_SLOT_HEIGHT, bottomPx - topPx);
+
+            // Prevent overlap: push down if overlapping with previous
+            if (topPx < lastBottom + SLOT_GAP) {
+                topPx = lastBottom + SLOT_GAP;
+            }
+
+            positions.push({ topPx, heightPx });
+            lastBottom = topPx + heightPx;
+        }
+
+        return positions;
+    }, [slots, dayStartMin, dayLengthMin, totalHeightPx]);
+
+    // Adjust total container height if slots overflow
+    const maxBottom = useMemo(() => {
+        if (slotPositions.length === 0) return totalHeightPx;
+        const last = slotPositions[slotPositions.length - 1];
+        return Math.max(totalHeightPx, last.topPx + last.heightPx + 8);
+    }, [slotPositions, totalHeightPx]);
+
+    // ─── Early return AFTER all hooks ───
+    if (loading || !user) return null;
 
     // Current time position
     const now = new Date();
@@ -105,12 +148,6 @@ export default function TimelinePage() {
         hours.push(h);
     }
 
-    // Convert slot time to percentage position within the day
-    const timeToPercent = (date: Date): number => {
-        const mins = getHours(date) * 60 + getMinutes(date);
-        return Math.max(0, Math.min(100, ((mins - dayStartMin) / dayLengthMin) * 100));
-    };
-
     const handleSlotClick = (slot: ScheduleSlot) => {
         if (slot.type === 'Task' && slot.taskId) {
             const task = tasks.find((t) => t.id === slot.taskId);
@@ -121,7 +158,6 @@ export default function TimelinePage() {
         }
     };
 
-    // Check if a slot is the "current" one
     const isCurrentSlot = (slot: ScheduleSlot) => {
         if (!isToday(selectedDate)) return false;
         return now >= slot.timeStart && now < slot.timeEnd;
@@ -130,10 +166,6 @@ export default function TimelinePage() {
     const navigateWeek = (direction: number) => {
         setSelectedDate(addDays(selectedDate, direction * 7));
     };
-
-    // Total height for timeline in pixels (60px per hour)
-    const PX_PER_HOUR = 60;
-    const totalHeightPx = ((dayEndMin - dayStartMin) / 60) * PX_PER_HOUR;
 
     return (
         <div className="min-h-screen">
@@ -219,6 +251,10 @@ export default function TimelinePage() {
                             </div>
                         );
                     })}
+                    <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                        <div className="w-3 h-3 rounded-sm bg-red-500/30 border border-red-500/50" />
+                        <span>Overdue</span>
+                    </div>
                 </div>
 
                 {/* Timeline */}
@@ -230,10 +266,10 @@ export default function TimelinePage() {
                         </CardTitle>
                     </CardHeader>
                     <CardContent className="pb-6">
-                        <div className="relative" style={{ height: `${totalHeightPx}px` }}>
+                        <div className="relative" style={{ height: `${maxBottom + 16}px` }}>
                             {/* Hour grid lines */}
                             {hours.map((hour) => {
-                                const topPx = ((hour * 60 + 0 - dayStartMin) / (dayEndMin - dayStartMin)) * totalHeightPx;
+                                const topPx = ((hour * 60 - dayStartMin) / dayLengthMin) * totalHeightPx;
                                 return (
                                     <div key={hour} className="absolute left-0 right-0" style={{ top: `${topPx}px` }}>
                                         <div className="flex items-start">
@@ -260,30 +296,32 @@ export default function TimelinePage() {
                                 </div>
                             )}
 
-                            {/* Slots — absolutely positioned */}
+                            {/* Slots — absolutely positioned with collision prevention */}
                             {slots.map((slot, i) => {
-                                const topPct = timeToPercent(slot.timeStart);
-                                const bottomPct = timeToPercent(slot.timeEnd);
-                                const heightPct = bottomPct - topPct;
-                                if (heightPct <= 0) return null;
+                                const pos = slotPositions[i];
+                                if (!pos) return null;
 
-                                const topPx = (topPct / 100) * totalHeightPx;
-                                const heightPx = Math.max(28, (heightPct / 100) * totalHeightPx);
                                 const duration = differenceInMinutes(slot.timeEnd, slot.timeStart);
                                 const cfg = slotConfig[slot.type];
                                 const Icon = cfg.icon;
                                 const isCurrent = isCurrentSlot(slot);
                                 const isClickable = slot.type === 'Task' && !!slot.taskId;
+                                const isOverdue = slot.isOverdue;
+
+                                const colorClass = isOverdue
+                                    ? 'bg-red-500/15 border border-red-500/40 text-red-200'
+                                    : cfg.colorClass;
 
                                 return (
                                     <div
                                         key={i}
-                                        className={`absolute left-14 right-0 ${cfg.colorClass} rounded-lg px-3 py-1.5 flex items-center gap-2 overflow-hidden transition-all
+                                        className={`absolute left-14 right-0 rounded-lg px-3 py-1.5 flex items-center gap-2 overflow-hidden transition-all
+                                            ${colorClass}
                                             ${isCurrent ? 'ring-2 ring-primary ring-offset-1 ring-offset-background shadow-lg shadow-primary/20 z-10' : ''}
                                             ${isClickable ? 'cursor-pointer hover:brightness-110 z-[5]' : ''}`}
                                         style={{
-                                            top: `${topPx}px`,
-                                            height: `${heightPx - 2}px`,
+                                            top: `${pos.topPx}px`,
+                                            height: `${pos.heightPx - SLOT_GAP}px`,
                                         }}
                                         onClick={isClickable ? () => handleSlotClick(slot) : undefined}
                                     >
@@ -296,6 +334,11 @@ export default function TimelinePage() {
                                                 {isCurrent && (
                                                     <span className="text-[8px] px-1.5 py-0.5 rounded-full bg-primary text-primary-foreground font-bold animate-pulse">
                                                         NOW
+                                                    </span>
+                                                )}
+                                                {isOverdue && !isCurrent && (
+                                                    <span className="text-[8px] px-1.5 py-0.5 rounded-full bg-red-500/20 text-red-400 font-bold">
+                                                        OVERDUE
                                                     </span>
                                                 )}
                                                 {slot.priority && (

@@ -36,6 +36,7 @@ export const useStore = create<HumanOSState>((set, get) => ({
         shiftRateMin: 15,
         panicModeActive: false,
         fixedEvents: [],
+        breakTimeMin: 10,
     },
     todaySchedule: null,
     currentTaskId: null,

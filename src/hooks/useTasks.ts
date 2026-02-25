@@ -35,6 +35,7 @@ export function useTasks() {
                 return {
                     id: docSnap.id,
                     title: data.title,
+                    description: data.description || '',
                     duration: data.duration,
                     deadline: data.deadline instanceof Timestamp ? data.deadline.toDate() : new Date(data.deadline),
                     priority: data.priority as Priority,

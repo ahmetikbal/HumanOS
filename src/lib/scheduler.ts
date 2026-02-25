@@ -3,7 +3,8 @@
 // ============================================================
 // Treats user time as CPU cycles, tasks as processes
 // Maximizes daily utilization — fills days from today forward
-// EDF ordering ensures earliest deadlines are handled first
+// Splits tasks across days when they don't fit in one day
+// Inserts break time between consecutive long tasks
 // ============================================================
 
 import {
@@ -18,11 +19,10 @@ import {
     isSameDay,
     format,
     differenceInMinutes,
-    startOfWeek,
 } from 'date-fns';
 import { Task, ScheduleSlot, DaySchedule, UserSettings } from '@/types';
 
-// Greedy threshold: tasks under this duration are scheduled immediately
+// Greedy threshold: tasks under this duration are scheduled as interrupts
 const GREEDY_THRESHOLD_MIN = 15;
 
 // ─── Helper: Parse "HH:mm" to Date on a given day ───
@@ -46,14 +46,12 @@ export function formatDuration(minutes: number): string {
     return `${h}h ${m}m`;
 }
 
-// ─── Step A: Lay down Fixed blocks (Sleep + user events) ───
+// ─── Step A: Lay down Fixed blocks (user-created fixed events) ───
 function generateFixedBlocks(
     day: Date,
     settings: UserSettings
 ): ScheduleSlot[] {
     const slots: ScheduleSlot[] = [];
-    const wakeTime = parseTime(settings.wakeTime, day);
-    const bedTime = parseTime(settings.bedTime, day);
 
     // Fixed events for this day of week
     const dayOfWeek = day.getDay(); // 0=Sunday
@@ -66,14 +64,10 @@ function generateFixedBlocks(
         let eventEnd = parseTime(event.timeEnd, day);
 
         // Handle overnight events (e.g. 23:00 → 07:00)
-        // If end is before start, it wraps past midnight
         if (isBefore(eventEnd, eventStart) || eventEnd.getTime() === eventStart.getTime()) {
-            // For the current day: show only the part from eventStart → end of day
             eventEnd = endOfDay(day);
         }
 
-        // Clamp to awake hours for scheduling purposes,
-        // but still store original times for display
         const isSleepEvent = event.title.toLowerCase().includes('sleep') ||
             event.title.toLowerCase().includes('uyku');
 
@@ -86,7 +80,6 @@ function generateFixedBlocks(
         });
     }
 
-    // Sort by start time
     return slots.sort((a, b) => a.timeStart.getTime() - b.timeStart.getTime());
 }
 
@@ -103,21 +96,18 @@ function calculateFreeBlocks(
     // Get only fixed events that fall within awake hours
     const awakeFixed = fixedSlots
         .filter((s) => {
-            // Exclude events entirely outside awake hours
             return !(isAfter(s.timeStart, bedTime) || isBefore(s.timeEnd, wakeTime) || s.timeEnd.getTime() === wakeTime.getTime());
         })
         .map((s) => ({
             ...s,
-            // Clamp to awake window
             timeStart: isBefore(s.timeStart, wakeTime) ? wakeTime : s.timeStart,
             timeEnd: isAfter(s.timeEnd, bedTime) ? bedTime : s.timeEnd,
         }))
         .sort((a, b) => a.timeStart.getTime() - b.timeStart.getTime());
 
-    // Merge truly overlapping slots (NOT adjacent — strict < )
+    // Merge truly overlapping slots (strict <, not <=)
     const merged = mergeOverlapping(awakeFixed);
 
-    // Find gaps
     let cursor = wakeTime;
 
     for (const slot of merged) {
@@ -132,7 +122,6 @@ function calculateFreeBlocks(
         cursor = isAfter(slot.timeEnd, cursor) ? slot.timeEnd : cursor;
     }
 
-    // Remaining time until bed
     if (isBefore(cursor, bedTime)) {
         freeBlocks.push({
             timeStart: cursor,
@@ -145,7 +134,7 @@ function calculateFreeBlocks(
     return freeBlocks;
 }
 
-// ─── Helper: Merge TRULY overlapping time slots (strict overlap, not adjacent) ───
+// ─── Helper: Merge TRULY overlapping time slots (strict < ) ───
 function mergeOverlapping(slots: ScheduleSlot[]): ScheduleSlot[] {
     if (slots.length === 0) return [];
     const sorted = [...slots].sort((a, b) => a.timeStart.getTime() - b.timeStart.getTime());
@@ -154,8 +143,6 @@ function mergeOverlapping(slots: ScheduleSlot[]): ScheduleSlot[] {
     for (let i = 1; i < sorted.length; i++) {
         const last = merged[merged.length - 1];
         const current = sorted[i];
-        // STRICT overlap: only merge if current starts BEFORE last ends
-        // Adjacent events (end === start) do NOT merge
         if (current.timeStart.getTime() < last.timeEnd.getTime()) {
             last.timeEnd = isAfter(current.timeEnd, last.timeEnd) ? current.timeEnd : last.timeEnd;
         } else {
@@ -187,30 +174,19 @@ function categorizeTasks(tasks: Task[]): {
 }
 
 // ============================================================
-// Greedy Bin-Packing Distribution
+// Cross-Day Greedy Bin-Packing Distribution
 // ============================================================
-// Like a CPU scheduler that maximizes utilization:
 // - Sort all tasks by deadline (EDF)
-// - Starting from today, fill each day's free time to capacity
-// - Move to next day only when current day is full
-// - Tasks are placed BEFORE their deadline, not ON it
+// - Starting from today, fill each day to capacity
+// - When a task doesn't fully fit, split it: allocate what fits,
+//   carry the remainder to the next day
+// - Track { taskId, allocatedMinutes } per day
 // ============================================================
 
-interface DayCapacity {
-    date: Date;
-    freeMinutes: number;
-    freeBlocks: ScheduleSlot[];
-    fixedBlocks: ScheduleSlot[];
-}
-
-function computeDayCapacity(
-    day: Date,
-    settings: UserSettings
-): DayCapacity {
-    const fixedBlocks = generateFixedBlocks(day, settings);
-    const freeBlocks = calculateFreeBlocks(fixedBlocks, day, settings);
-    const freeMinutes = freeBlocks.reduce((sum, b) => sum + slotDuration(b), 0);
-    return { date: day, freeMinutes, freeBlocks, fixedBlocks };
+interface TaskAllocation {
+    task: Task;
+    allocatedMinutes: number;
+    partIndex: number; // 0 = first part, 1 = second, etc.
 }
 
 function distributeTasksGreedy(
@@ -218,80 +194,109 @@ function distributeTasksGreedy(
     schedulable: Task[],
     targetDate: Date,
     settings: UserSettings
-): { dayInterrupts: Task[]; dayTasks: Task[] } {
+): { dayInterrupts: Task[]; dayAllocations: TaskAllocation[] } {
     const today = startOfDay(new Date());
     const targetDay = startOfDay(targetDate);
 
-    // Build a list of days from today for up to 28 days (4 weeks)
+    // Build a list of days for up to 56 days (8 weeks) planning horizon
     const planningDays: Date[] = [];
-    for (let i = 0; i < 28; i++) {
+    for (let i = 0; i < 56; i++) {
         planningDays.push(addDays(today, i));
     }
 
-    // Compute capacity for each day
-    const dayCapacities: Map<string, number> = new Map();
+    // Compute free minutes for each day (accounting for break time between tasks)
+    const dayFreeMinutes: Map<string, number> = new Map();
     for (const d of planningDays) {
-        const cap = computeDayCapacity(d, settings);
-        dayCapacities.set(format(d, 'yyyy-MM-dd'), cap.freeMinutes);
+        const fixedBlocks = generateFixedBlocks(d, settings);
+        const freeBlocks = calculateFreeBlocks(fixedBlocks, d, settings);
+        const totalFree = freeBlocks.reduce((sum, b) => sum + slotDuration(b), 0);
+        dayFreeMinutes.set(format(d, 'yyyy-MM-dd'), totalFree);
     }
 
-    // Track remaining capacity as we assign tasks
-    const remainingCapacity: Map<string, number> = new Map(dayCapacities);
+    // Track remaining capacity per day
+    const remainingCapacity: Map<string, number> = new Map(dayFreeMinutes);
 
-    // Assign each task to the EARLIEST day that has capacity
-    // Tasks are already EDF sorted
-    const taskDayAssignment: Map<string, string> = new Map(); // taskId -> day string
+    // Track allocations per day: dayKey -> TaskAllocation[]
+    const dayAllocations: Map<string, TaskAllocation[]> = new Map();
+    for (const d of planningDays) {
+        dayAllocations.set(format(d, 'yyyy-MM-dd'), []);
+    }
 
-    for (const task of [...interrupts, ...schedulable]) {
-        let assigned = false;
+    // Track interrupt assignments
+    const interruptAssignment: Map<string, string> = new Map(); // taskId -> dayKey
+
+    // Assign interrupts first (small tasks, no splitting)
+    for (const interrupt of interrupts) {
         for (const d of planningDays) {
             const dayKey = format(d, 'yyyy-MM-dd');
             const capacity = remainingCapacity.get(dayKey) || 0;
-
-            if (capacity >= task.duration) {
-                taskDayAssignment.set(task.id, dayKey);
-                remainingCapacity.set(dayKey, capacity - task.duration);
-                assigned = true;
-                break;
-            } else if (capacity > 0 && task.duration > capacity) {
-                // Task can be split: allocate what fits, rest goes to next day
-                // For simplicity in distribution, assign to first day with any capacity
-                taskDayAssignment.set(task.id, dayKey);
-                remainingCapacity.set(dayKey, 0);
-                // The remaining part will be handled by fillDaySchedule splitting
-                assigned = true;
+            if (capacity >= interrupt.duration) {
+                interruptAssignment.set(interrupt.id, dayKey);
+                remainingCapacity.set(dayKey, capacity - interrupt.duration);
                 break;
             }
         }
+    }
 
-        // If no day has capacity, assign to today (overflow)
-        if (!assigned) {
-            taskDayAssignment.set(task.id, format(today, 'yyyy-MM-dd'));
+    // Assign schedulable tasks with CROSS-DAY SPLITTING
+    const breakTime = settings.breakTimeMin || 10;
+
+    for (const task of schedulable) {
+        let remainingDuration = task.duration;
+        let partIndex = 0;
+
+        for (const d of planningDays) {
+            if (remainingDuration <= 0) break;
+
+            const dayKey = format(d, 'yyyy-MM-dd');
+            let capacity = remainingCapacity.get(dayKey) || 0;
+
+            // Account for break time if this day already has task allocations
+            const existingAllocations = dayAllocations.get(dayKey) || [];
+            if (existingAllocations.length > 0 && capacity > breakTime) {
+                capacity -= breakTime; // Reserve break time
+            }
+
+            if (capacity <= 0) continue;
+
+            const allocate = Math.min(remainingDuration, capacity);
+
+            const allocs = dayAllocations.get(dayKey) || [];
+            allocs.push({ task, allocatedMinutes: allocate, partIndex });
+            dayAllocations.set(dayKey, allocs);
+
+            // Deduct from capacity (allocate + break)
+            const totalDeducted = allocate + (existingAllocations.length > 0 ? breakTime : 0);
+            remainingCapacity.set(dayKey, (remainingCapacity.get(dayKey) || 0) - totalDeducted);
+
+            remainingDuration -= allocate;
+            partIndex++;
         }
     }
 
-    // Filter tasks assigned to the target day
+    // Return allocations for the target day
     const targetKey = format(targetDay, 'yyyy-MM-dd');
 
     const dayInterrupts = interrupts.filter(
-        (t) => taskDayAssignment.get(t.id) === targetKey
+        (t) => interruptAssignment.get(t.id) === targetKey
     );
 
-    const dayTasks = schedulable.filter(
-        (t) => taskDayAssignment.get(t.id) === targetKey
-    );
+    const targetAllocations = dayAllocations.get(targetKey) || [];
 
-    return { dayInterrupts, dayTasks };
+    return { dayInterrupts, dayAllocations: targetAllocations };
 }
 
-// ─── Fill free blocks for a single day with assigned tasks ───
+// ─── Fill free blocks for a single day with allocated task durations ───
 function fillDaySchedule(
     freeBlocks: ScheduleSlot[],
     dayInterrupts: Task[],
-    dayTasks: Task[],
+    dayAllocations: TaskAllocation[],
+    settings: UserSettings
 ): ScheduleSlot[] {
     const taskSlots: ScheduleSlot[] = [];
     const remainingFree: ScheduleSlot[] = freeBlocks.map((b) => ({ ...b }));
+    const today = startOfDay(new Date());
+    const breakTime = settings.breakTimeMin || 10;
 
     // Insert interrupts (<=15min) into earliest free blocks (Greedy)
     for (const interrupt of dayInterrupts) {
@@ -300,6 +305,7 @@ function fillDaySchedule(
             const blockMinutes = slotDuration(block);
             if (blockMinutes >= interrupt.duration) {
                 const taskEnd = addMinutes(block.timeStart, interrupt.duration);
+                const isOverdue = isBefore(startOfDay(interrupt.deadline), today);
                 taskSlots.push({
                     timeStart: block.timeStart,
                     timeEnd: taskEnd,
@@ -307,6 +313,7 @@ function fillDaySchedule(
                     taskTitle: `⚡ ${interrupt.title}`,
                     type: 'Task',
                     priority: interrupt.priority,
+                    isOverdue,
                 });
                 block.timeStart = taskEnd;
                 break;
@@ -317,35 +324,46 @@ function fillDaySchedule(
     // Clean up empty free blocks
     const cleanFree = remainingFree.filter((b) => slotDuration(b) > 0);
 
-    // Fill with EDF-sorted tasks (splitting if needed)
-    for (const task of dayTasks) {
-        let remainingDuration = task.duration;
-        let partIndex = 0;
+    // Fill with allocated task portions
+    let lastTaskEndTime: Date | null = null;
+
+    for (const allocation of dayAllocations) {
+        let remainingDuration = allocation.allocatedMinutes;
 
         for (let i = 0; i < cleanFree.length && remainingDuration > 0; i++) {
             const block = cleanFree[i];
-            const blockMinutes = slotDuration(block);
+            let blockMinutes = slotDuration(block);
             if (blockMinutes <= 0) continue;
+
+            // Insert break if previous task just ended and this is a new task
+            if (lastTaskEndTime && block.timeStart.getTime() === lastTaskEndTime.getTime()) {
+                const breakAlloc = Math.min(breakTime, blockMinutes);
+                block.timeStart = addMinutes(block.timeStart, breakAlloc);
+                blockMinutes -= breakAlloc;
+                if (blockMinutes <= 0) continue;
+            }
 
             const allocate = Math.min(remainingDuration, blockMinutes);
             const taskEnd = addMinutes(block.timeStart, allocate);
 
-            const label = partIndex > 0
-                ? `${task.title} [Part ${partIndex + 1}]`
-                : task.title;
+            const isOverdue = isBefore(startOfDay(allocation.task.deadline), today);
+            const label = allocation.partIndex > 0
+                ? `${allocation.task.title} [Part ${allocation.partIndex + 1}]`
+                : allocation.task.title;
 
             taskSlots.push({
                 timeStart: block.timeStart,
                 timeEnd: taskEnd,
-                taskId: task.id,
+                taskId: allocation.task.id,
                 taskTitle: label,
                 type: 'Task',
-                priority: task.priority,
+                priority: allocation.task.priority,
+                isOverdue,
             });
 
             block.timeStart = taskEnd;
+            lastTaskEndTime = taskEnd;
             remainingDuration -= allocate;
-            partIndex++;
         }
     }
 
@@ -369,13 +387,13 @@ export function generateSchedule(
     // Step C: Categorize all tasks
     const { interrupts, schedulable } = categorizeTasks(tasks);
 
-    // Step D: Greedy bin-packing distribution across days
-    const { dayInterrupts, dayTasks } = distributeTasksGreedy(
+    // Step D: Greedy bin-packing with cross-day splitting
+    const { dayInterrupts, dayAllocations } = distributeTasksGreedy(
         interrupts, schedulable, date, settings
     );
 
     // Step E: Fill this day's schedule
-    const taskSlots = fillDaySchedule(freeBlocks, dayInterrupts, dayTasks);
+    const taskSlots = fillDaySchedule(freeBlocks, dayInterrupts, dayAllocations, settings);
 
     // Combine fixed + tasks, recalculate remaining free blocks
     const usedSlots = [...fixedBlocks, ...taskSlots];
@@ -400,12 +418,10 @@ function recalculateFreeBlocks(
     const activeSlots = usedSlots
         .filter((s) => s.type !== 'Sleep')
         .filter((s) => {
-            // Must overlap with awake window
             return isBefore(s.timeStart, bedTime) && isAfter(s.timeEnd, wakeTime);
         })
         .map((s) => ({
             ...s,
-            // Clamp to awake window
             timeStart: isBefore(s.timeStart, wakeTime) ? wakeTime : s.timeStart,
             timeEnd: isAfter(s.timeEnd, bedTime) ? bedTime : s.timeEnd,
         }))

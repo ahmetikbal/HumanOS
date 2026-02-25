@@ -40,6 +40,7 @@ export function TaskEditModal({ task, open, onOpenChange, onUpdate, onDelete, on
     const [deadlineDate, setDeadlineDate] = useState('');
     const [deadlineTime, setDeadlineTime] = useState('');
     const [priority, setPriority] = useState<Priority>('Medium');
+    const [description, setDescription] = useState('');
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState('');
 
@@ -52,6 +53,7 @@ export function TaskEditModal({ task, open, onOpenChange, onUpdate, onDelete, on
             setDeadlineDate(format(task.deadline, 'yyyy-MM-dd'));
             setDeadlineTime(format(task.deadline, 'HH:mm'));
             setPriority(task.priority);
+            setDescription(task.description || '');
             setError('');
         }
     }, [task]);
@@ -72,6 +74,7 @@ export function TaskEditModal({ task, open, onOpenChange, onUpdate, onDelete, on
             const deadline = new Date(`${deadlineDate}T${deadlineTime}`);
             await onUpdate(task.id, {
                 title: title.trim(),
+                description: description.trim() || undefined,
                 duration: totalMinutes,
                 deadline,
                 priority,
@@ -145,6 +148,22 @@ export function TaskEditModal({ task, open, onOpenChange, onUpdate, onDelete, on
                             value={title}
                             onChange={(e) => setTitle(e.target.value)}
                             className="bg-background/50"
+                            disabled={!isActive}
+                        />
+                    </div>
+
+                    {/* Description */}
+                    <div className="grid gap-2">
+                        <Label htmlFor="edit-description" className="text-xs font-medium">
+                            Description <span className="text-muted-foreground font-normal">(optional)</span>
+                        </Label>
+                        <textarea
+                            id="edit-description"
+                            value={description}
+                            onChange={(e) => setDescription(e.target.value)}
+                            placeholder="Notes, links, context..."
+                            className="flex min-h-[60px] w-full rounded-md border border-input bg-background/50 px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 resize-none"
+                            rows={2}
                             disabled={!isActive}
                         />
                     </div>

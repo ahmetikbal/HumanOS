@@ -38,6 +38,7 @@ export default function SettingsPage() {
     const [targetWakeTime, setTargetWakeTime] = useState(settings.targetWakeTime ?? '');
     const [saving, setSaving] = useState(false);
     const [shiftRate, setShiftRate] = useState(settings.shiftRateMin.toString());
+    const [breakTime, setBreakTime] = useState((settings.breakTimeMin || 10).toString());
 
     // Fixed event form
     const [eventTitle, setEventTitle] = useState('');
@@ -51,6 +52,7 @@ export default function SettingsPage() {
         setBedTime(settings.bedTime);
         setTargetWakeTime(settings.targetWakeTime ?? '');
         setShiftRate(settings.shiftRateMin.toString());
+        setBreakTime((settings.breakTimeMin || 10).toString());
     }, [settings]);
 
     useEffect(() => {
@@ -67,6 +69,7 @@ export default function SettingsPage() {
                 bedTime,
                 targetWakeTime: targetWakeTime || undefined,
                 shiftRateMin: parseInt(shiftRate) || 15,
+                breakTimeMin: parseInt(breakTime) || 10,
             });
         } catch (err) {
             console.error('Failed to save settings:', err);
@@ -215,6 +218,41 @@ export default function SettingsPage() {
 
                             <Button onClick={handleSaveTime} disabled={saving} className="w-full cursor-pointer">
                                 {saving ? 'Saving...' : 'Save Sleep Settings'}
+                            </Button>
+                        </CardContent>
+                    </Card>
+
+                    {/* Scheduler Settings */}
+                    <Card className="glass border-border/30">
+                        <CardHeader className="pb-3">
+                            <CardTitle className="text-sm font-medium flex items-center gap-2">
+                                <Clock className="w-4 h-4 text-chart-2" />
+                                Scheduler
+                            </CardTitle>
+                        </CardHeader>
+                        <CardContent className="space-y-4 pb-6">
+                            <div className="space-y-2">
+                                <Label htmlFor="break-time" className="text-xs flex items-center gap-2">
+                                    Break Between Tasks
+                                </Label>
+                                <p className="text-[10px] text-muted-foreground">
+                                    Rest period inserted between consecutive tasks. Humans can&apos;t context-switch like CPUs!
+                                </p>
+                                <div className="flex items-center gap-2">
+                                    <Input
+                                        id="break-time"
+                                        type="number"
+                                        min="0"
+                                        max="60"
+                                        value={breakTime}
+                                        onChange={(e) => setBreakTime(e.target.value)}
+                                        className="bg-background/50 w-24"
+                                    />
+                                    <span className="text-xs text-muted-foreground">minutes</span>
+                                </div>
+                            </div>
+                            <Button onClick={handleSaveTime} disabled={saving} className="w-full cursor-pointer">
+                                {saving ? 'Saving...' : 'Save Scheduler Settings'}
                             </Button>
                         </CardContent>
                     </Card>

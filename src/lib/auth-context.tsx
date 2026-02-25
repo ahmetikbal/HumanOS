@@ -32,6 +32,7 @@ const DEFAULT_SETTINGS: UserSettings = {
     shiftRateMin: 15,
     panicModeActive: false,
     fixedEvents: [],
+    breakTimeMin: 10,
 };
 
 export function AuthProvider({ children }: { children: ReactNode }) {

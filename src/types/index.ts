@@ -9,6 +9,7 @@ export type SlotType = 'Task' | 'Fixed' | 'Free' | 'Sleep';
 export interface Task {
     id: string;
     title: string;
+    description?: string; // optional notes for the task
     duration: number; // minutes
     deadline: Date;
     priority: Priority;
@@ -35,6 +36,7 @@ export interface ScheduleSlot {
     type: SlotType;
     priority?: Priority;
     isOverflow?: boolean; // flagged when deadline can't be met
+    isOverdue?: boolean; // deadline has passed but task is not completed
 }
 
 export interface DaySchedule {
@@ -49,6 +51,7 @@ export interface UserSettings {
     shiftRateMin: number; // minutes per day
     panicModeActive: boolean;
     fixedEvents: FixedEvent[];
+    breakTimeMin: number; // break between consecutive tasks (default 10)
 }
 
 export interface WeeklyStats {
