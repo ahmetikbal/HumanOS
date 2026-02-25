@@ -97,31 +97,55 @@ export default function TimelinePage() {
     }, [schedule]);
 
     // Compute slot positions with overlap prevention — ALL hooks must be before early return
-    const slotPositions = useMemo(() => {
+    // Also track cumulative displacement so hour labels can align with slot positions
+    const { positions: slotPositions, hourOffsets } = useMemo(() => {
         const positions: { topPx: number; heightPx: number }[] = [];
         let lastBottom = 0;
+        let cumulativeOffset = 0;
+        const hourOffsetMap: Map<number, number> = new Map();
+
+        const timeToNaturalPx = (mins: number) =>
+            Math.max(0, Math.min(1, (mins - dayStartMin) / dayLengthMin)) * totalHeightPx;
 
         for (let i = 0; i < slots.length; i++) {
             const slot = slots[i];
-            const mins = getHours(slot.timeStart) * 60 + getMinutes(slot.timeStart);
-            const pct = Math.max(0, Math.min(1, (mins - dayStartMin) / dayLengthMin));
-            let topPx = pct * totalHeightPx;
-
+            const startMins = getHours(slot.timeStart) * 60 + getMinutes(slot.timeStart);
             const endMins = getHours(slot.timeEnd) * 60 + getMinutes(slot.timeEnd);
-            const endPct = Math.max(0, Math.min(1, (endMins - dayStartMin) / dayLengthMin));
-            const bottomPx = endPct * totalHeightPx;
-            const heightPx = Math.max(MIN_SLOT_HEIGHT, bottomPx - topPx);
 
-            // Prevent overlap: push down if overlapping with previous
+            const naturalTop = timeToNaturalPx(startMins);
+            const naturalBottom = timeToNaturalPx(endMins);
+            const naturalHeight = naturalBottom - naturalTop;
+            const heightPx = Math.max(MIN_SLOT_HEIGHT, naturalHeight);
+
+            let topPx = naturalTop + cumulativeOffset;
+
             if (topPx < lastBottom + SLOT_GAP) {
                 topPx = lastBottom + SLOT_GAP;
             }
 
             positions.push({ topPx, heightPx });
             lastBottom = topPx + heightPx;
+
+            // Track how much displacement has accumulated
+            const expectedBottom = naturalBottom + cumulativeOffset;
+            cumulativeOffset += (lastBottom - expectedBottom);
+
+            // Record offset for whole-hour boundaries crossed
+            const startH = Math.ceil(startMins / 60);
+            const endH = Math.floor(endMins / 60);
+            for (let h = startH; h <= endH; h++) {
+                if (!hourOffsetMap.has(h)) hourOffsetMap.set(h, cumulativeOffset);
+            }
         }
 
-        return positions;
+        // Fill remaining hours
+        const wH = Math.floor(dayStartMin / 60);
+        const bH = Math.ceil(dayEndMin / 60);
+        for (let h = wH; h <= bH; h++) {
+            if (!hourOffsetMap.has(h)) hourOffsetMap.set(h, cumulativeOffset);
+        }
+
+        return { positions, hourOffsets: hourOffsetMap };
     }, [slots, dayStartMin, dayLengthMin, totalHeightPx]);
 
     // Adjust total container height if slots overflow
@@ -269,7 +293,9 @@ export default function TimelinePage() {
                         <div className="relative" style={{ height: `${maxBottom + 16}px` }}>
                             {/* Hour grid lines */}
                             {hours.map((hour) => {
-                                const topPx = ((hour * 60 - dayStartMin) / dayLengthMin) * totalHeightPx;
+                                const naturalPx = ((hour * 60 - dayStartMin) / dayLengthMin) * totalHeightPx;
+                                const offset = hourOffsets.get(hour) || 0;
+                                const topPx = naturalPx + offset;
                                 return (
                                     <div key={hour} className="absolute left-0 right-0" style={{ top: `${topPx}px` }}>
                                         <div className="flex items-start">
@@ -307,15 +333,19 @@ export default function TimelinePage() {
                                 const isCurrent = isCurrentSlot(slot);
                                 const isClickable = slot.type === 'Task' && !!slot.taskId;
                                 const isOverdue = slot.isOverdue;
+                                const isCompact = (pos.heightPx - SLOT_GAP) < 44;
 
                                 const colorClass = isOverdue
                                     ? 'bg-red-500/15 border border-red-500/40 text-red-200'
                                     : cfg.colorClass;
 
+                                const timeStr = `${format(slot.timeStart, 'HH:mm')} – ${format(slot.timeEnd, 'HH:mm')} (${formatDuration(duration)})`;
+
                                 return (
                                     <div
                                         key={i}
-                                        className={`absolute left-14 right-0 rounded-lg px-3 py-1.5 flex items-center gap-2 overflow-hidden transition-all
+                                        className={`absolute left-14 right-0 rounded-lg px-3 flex items-center gap-2 overflow-hidden transition-all
+                                            ${isCompact ? 'py-0.5' : 'py-1.5'}
                                             ${colorClass}
                                             ${isCurrent ? 'ring-2 ring-primary ring-offset-1 ring-offset-background shadow-lg shadow-primary/20 z-10' : ''}
                                             ${isClickable ? 'cursor-pointer hover:brightness-110 z-[5]' : ''}`}
@@ -327,33 +357,65 @@ export default function TimelinePage() {
                                     >
                                         <Icon className={`w-3.5 h-3.5 flex-shrink-0 ${isCurrent ? 'opacity-100' : 'opacity-70'}`} />
                                         <div className="flex-1 min-w-0">
-                                            <div className="flex items-center gap-2">
-                                                <span className={`text-xs font-medium truncate ${isCurrent ? 'text-primary' : ''}`}>
-                                                    {slot.taskTitle || cfg.label}
-                                                </span>
-                                                {isCurrent && (
-                                                    <span className="text-[8px] px-1.5 py-0.5 rounded-full bg-primary text-primary-foreground font-bold animate-pulse">
-                                                        NOW
+                                            {isCompact ? (
+                                                /* ─── Compact: single line ─── */
+                                                <div className="flex items-center gap-1.5">
+                                                    <span className={`text-xs font-medium truncate ${isCurrent ? 'text-primary' : ''}`}>
+                                                        {slot.taskTitle || cfg.label}
                                                     </span>
-                                                )}
-                                                {isOverdue && !isCurrent && (
-                                                    <span className="text-[8px] px-1.5 py-0.5 rounded-full bg-red-500/20 text-red-400 font-bold">
-                                                        OVERDUE
+                                                    <span className="text-[10px] opacity-60 font-mono whitespace-nowrap flex-shrink-0">
+                                                        {timeStr}
                                                     </span>
-                                                )}
-                                                {slot.priority && (
-                                                    <Badge
-                                                        variant="outline"
-                                                        className={`text-[8px] px-1 py-0 priority-${slot.priority.toLowerCase()}`}
-                                                    >
-                                                        {slot.priority}
-                                                    </Badge>
-                                                )}
-                                            </div>
-                                            <span className="text-[10px] opacity-60 font-mono">
-                                                {format(slot.timeStart, 'HH:mm')} – {format(slot.timeEnd, 'HH:mm')}{' '}
-                                                ({formatDuration(duration)})
-                                            </span>
+                                                    {isCurrent && (
+                                                        <span className="text-[8px] px-1 py-0 rounded-full bg-primary text-primary-foreground font-bold animate-pulse flex-shrink-0">
+                                                            NOW
+                                                        </span>
+                                                    )}
+                                                    {isOverdue && !isCurrent && (
+                                                        <span className="text-[8px] px-1 py-0 rounded-full bg-red-500/20 text-red-400 font-bold flex-shrink-0">
+                                                            OVERDUE
+                                                        </span>
+                                                    )}
+                                                    {slot.priority && (
+                                                        <Badge
+                                                            variant="outline"
+                                                            className={`text-[8px] px-1 py-0 priority-${slot.priority.toLowerCase()} flex-shrink-0`}
+                                                        >
+                                                            {slot.priority}
+                                                        </Badge>
+                                                    )}
+                                                </div>
+                                            ) : (
+                                                /* ─── Normal: two rows ─── */
+                                                <>
+                                                    <div className="flex items-center gap-2">
+                                                        <span className={`text-xs font-medium truncate ${isCurrent ? 'text-primary' : ''}`}>
+                                                            {slot.taskTitle || cfg.label}
+                                                        </span>
+                                                        {isCurrent && (
+                                                            <span className="text-[8px] px-1.5 py-0.5 rounded-full bg-primary text-primary-foreground font-bold animate-pulse">
+                                                                NOW
+                                                            </span>
+                                                        )}
+                                                        {isOverdue && !isCurrent && (
+                                                            <span className="text-[8px] px-1.5 py-0.5 rounded-full bg-red-500/20 text-red-400 font-bold">
+                                                                OVERDUE
+                                                            </span>
+                                                        )}
+                                                        {slot.priority && (
+                                                            <Badge
+                                                                variant="outline"
+                                                                className={`text-[8px] px-1 py-0 priority-${slot.priority.toLowerCase()}`}
+                                                            >
+                                                                {slot.priority}
+                                                            </Badge>
+                                                        )}
+                                                    </div>
+                                                    <span className="text-[10px] opacity-60 font-mono">
+                                                        {timeStr}
+                                                    </span>
+                                                </>
+                                            )}
                                         </div>
                                     </div>
                                 );

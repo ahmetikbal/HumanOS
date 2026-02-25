@@ -23,6 +23,7 @@ import {
     BarChart3,
     Trash2,
     CheckCircle,
+    Calendar,
 } from 'lucide-react';
 import { format, differenceInMinutes } from 'date-fns';
 import { ScheduleSlot } from '@/types';
@@ -32,7 +33,7 @@ export default function DashboardPage() {
     const { user, loading } = useAuth();
     const router = useRouter();
     const { tasks, addTask, completeTask, deleteTask, batchUpdateTasks } = useTasks();
-    const { settings, addFixedEvent } = useSettings();
+    const { settings } = useSettings();
     const { currentTask, upcomingTasks, schedule } = useSchedule();
 
     useEffect(() => {
@@ -89,8 +90,7 @@ export default function DashboardPage() {
             <Navbar />
 
             <main className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 pt-20 pb-16">
-                {/* Header */}
-                <div className="flex items-center justify-between mb-8">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-8">
                     <div>
                         <h1 className="text-2xl font-bold tracking-tight">
                             <span className="text-gradient">Dashboard</span>
@@ -99,8 +99,17 @@ export default function DashboardPage() {
                             {format(new Date(), 'EEEE, MMMM d — HH:mm')} • Kernel Active
                         </p>
                     </div>
-                    <div className="flex items-center gap-3">
-                        <TaskInputModal onSubmit={addTask} onAddFixedEvent={addFixedEvent} />
+                    <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
+                        <TaskInputModal onSubmit={addTask} />
+                        <Button
+                            size="sm"
+                            variant="outline"
+                            className="gap-2 hover:scale-105 transition-transform duration-200 cursor-pointer border-chart-2/30 text-chart-2 hover:bg-chart-2/10"
+                            onClick={() => router.push('/interrupts')}
+                        >
+                            <Calendar className="w-4 h-4" />
+                            New Event
+                        </Button>
                         <PanicButton
                             tasks={tasks}
                             settings={settings}

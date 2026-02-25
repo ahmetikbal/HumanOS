@@ -12,11 +12,13 @@ import {
     BarChart3,
     Settings,
     LogOut,
+    Zap,
 } from 'lucide-react';
 
 const navItems = [
     { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { href: '/processes', label: 'Processes', icon: ListTodo },
+    { href: '/interrupts', label: 'Interrupts', icon: Zap },
     { href: '/timeline', label: 'Timeline', icon: CalendarDays },
     { href: '/review', label: 'Review', icon: BarChart3 },
     { href: '/settings', label: 'Settings', icon: Settings },

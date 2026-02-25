@@ -28,6 +28,16 @@ export interface FixedEvent {
     days: number[]; // 0=Sunday, 1=Monday, ...6=Saturday
 }
 
+// One-time calendar event (e.g., "Meeting on Feb 26 13:00–15:00")
+export interface CalendarEvent {
+    id: string;
+    title: string;
+    date: string; // YYYY-MM-DD
+    timeStart: string; // HH:mm
+    timeEnd: string; // HH:mm
+    description?: string;
+}
+
 export interface ScheduleSlot {
     timeStart: Date;
     timeEnd: Date;
@@ -51,6 +61,7 @@ export interface UserSettings {
     shiftRateMin: number; // minutes per day
     panicModeActive: boolean;
     fixedEvents: FixedEvent[];
+    calendarEvents: CalendarEvent[]; // one-time events
     breakTimeMin: number; // break between consecutive tasks (default 10)
 }
 

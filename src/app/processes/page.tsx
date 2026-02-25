@@ -6,7 +6,6 @@ import { useEffect, useState } from 'react';
 import { Navbar } from '@/components/navbar';
 import { TaskInputModal } from '@/components/task-input-modal';
 import { TaskEditModal } from '@/components/task-edit-modal';
-import { FixedEventEditModal } from '@/components/fixed-event-edit-modal';
 import { useTasks } from '@/hooks/useTasks';
 import { useSettings } from '@/hooks/useSettings';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -17,17 +16,17 @@ import {
     CheckCircle,
     Pencil,
     Filter,
-    Pin,
     Clock,
     ArrowUpDown,
     ArrowUp,
     ArrowDown,
+    RotateCcw,
 } from 'lucide-react';
 import { format } from 'date-fns';
-import { Task, FixedEvent } from '@/types';
+import { Task } from '@/types';
 import { formatDuration } from '@/lib/scheduler';
 
-type FilterTab = 'all' | 'active' | 'completed' | 'dropped' | 'fixed-events';
+type FilterTab = 'all' | 'active' | 'completed' | 'dropped';
 type SortKey = 'title' | 'priority' | 'duration' | 'deadline' | 'status';
 type SortDir = 'asc' | 'desc';
 
@@ -37,13 +36,11 @@ export default function ProcessesPage() {
     const { user, loading } = useAuth();
     const router = useRouter();
     const { tasks, addTask, updateTask, deleteTask, completeTask } = useTasks();
-    const { settings, addFixedEvent, removeFixedEvent, updateFixedEvent } = useSettings();
+    useSettings();
 
     const [filter, setFilter] = useState<FilterTab>('all');
     const [editTask, setEditTask] = useState<Task | null>(null);
     const [editOpen, setEditOpen] = useState(false);
-    const [editFixedEvent, setEditFixedEvent] = useState<FixedEvent | null>(null);
-    const [editFixedOpen, setEditFixedOpen] = useState(false);
     const [sortKey, setSortKey] = useState<SortKey>('deadline');
     const [sortDir, setSortDir] = useState<SortDir>('asc');
 
@@ -112,12 +109,19 @@ export default function ProcessesPage() {
         }
     };
 
+    const handleRestoreTask = async (taskId: string) => {
+        try {
+            await updateTask(taskId, { status: 'Pending', completedAt: undefined });
+        } catch (err) {
+            console.error('Failed to restore task:', err);
+        }
+    };
+
     const tabs: { key: FilterTab; label: string; count: number }[] = [
         { key: 'all', label: 'All', count: tasks.length },
         { key: 'active', label: 'Active', count: tasks.filter((t) => t.status === 'Pending' || t.status === 'In-Progress').length },
         { key: 'completed', label: 'Completed', count: tasks.filter((t) => t.status === 'Completed').length },
         { key: 'dropped', label: 'Dropped', count: tasks.filter((t) => t.status === 'Dropped').length },
-        { key: 'fixed-events', label: 'Fixed Events', count: settings.fixedEvents.length },
     ];
 
     const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -141,10 +145,10 @@ export default function ProcessesPage() {
                             <span className="text-gradient">Processes</span>
                         </h1>
                         <p className="text-xs text-muted-foreground font-mono mt-1">
-                            Process Manager — {tasks.length} total • {settings.fixedEvents.length} fixed events
+                            Process Manager — {tasks.length} total
                         </p>
                     </div>
-                    <TaskInputModal onSubmit={addTask} onAddFixedEvent={addFixedEvent} />
+                    <TaskInputModal onSubmit={addTask} />
                 </div>
 
                 {/* Filter Tabs */}
@@ -164,149 +168,74 @@ export default function ProcessesPage() {
                     ))}
                 </div>
 
-                {filter === 'fixed-events' ? (
-                    /* ─── Fixed Events Table ─── */
-                    <Card className="glass border-border/30">
-                        <CardHeader className="pb-3">
-                            <CardTitle className="text-sm font-medium flex items-center gap-2">
-                                <Pin className="w-4 h-4 text-chart-4" />
-                                Fixed Events — Locked Timeslots
-                            </CardTitle>
-                        </CardHeader>
-                        <CardContent className="pb-4">
-                            {settings.fixedEvents.length === 0 ? (
-                                <p className="text-xs text-muted-foreground font-mono text-center py-8">
-                                    No fixed events configured. Create one with &quot;New Process&quot; → Fixed Event.
-                                </p>
-                            ) : (
-                                <div className="space-y-2">
-                                    {settings.fixedEvents.map((event) => (
-                                        <div
-                                            key={event.id}
-                                            className="flex items-center justify-between p-3 rounded-lg bg-background/30 hover:bg-background/50 transition-colors group"
-                                        >
-                                            <div className="flex items-center gap-3 min-w-0">
-                                                <div className="w-8 h-8 rounded-lg bg-chart-4/10 flex items-center justify-center flex-shrink-0">
-                                                    <Pin className="w-4 h-4 text-chart-4" />
-                                                </div>
-                                                <div className="min-w-0">
-                                                    <p className="text-sm font-medium truncate">{event.title}</p>
-                                                    <div className="flex items-center gap-2 text-[10px] text-muted-foreground font-mono mt-0.5">
-                                                        <Clock className="w-2.5 h-2.5" />
-                                                        <span>{event.timeStart} – {event.timeEnd}</span>
-                                                        <span>•</span>
-                                                        <span>{event.days.map((d) => dayNames[d]).join(', ')}</span>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                            <div className="flex items-center gap-1">
-                                                <Button
-                                                    variant="ghost"
-                                                    size="sm"
-                                                    onClick={() => {
-                                                        setEditFixedEvent(event);
-                                                        setEditFixedOpen(true);
-                                                    }}
-                                                    className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-foreground cursor-pointer h-7 w-7 p-0"
-                                                    title="Edit"
-                                                >
-                                                    <Pencil className="w-3.5 h-3.5" />
-                                                </Button>
-                                                <Button
-                                                    variant="ghost"
-                                                    size="sm"
-                                                    onClick={() => removeFixedEvent(event.id)}
-                                                    className="opacity-0 group-hover:opacity-100 transition-opacity text-destructive hover:text-destructive cursor-pointer h-7 w-7 p-0"
-                                                    title="Delete"
-                                                >
-                                                    <Trash2 className="w-3.5 h-3.5" />
-                                                </Button>
-                                            </div>
-                                        </div>
-                                    ))}
+                <Card className="glass border-border/30">
+                    <CardHeader className="pb-3">
+                        <CardTitle className="text-sm font-medium flex items-center gap-2">
+                            <Filter className="w-4 h-4 text-muted-foreground" />
+                            {filter === 'all' ? 'All Processes' : `${filter.charAt(0).toUpperCase() + filter.slice(1)} Processes`}
+                            <span className="text-[10px] text-muted-foreground font-normal ml-auto">
+                                {sortedTasks.length} process{sortedTasks.length !== 1 ? 'es' : ''}
+                            </span>
+                        </CardTitle>
+                    </CardHeader>
+                    <CardContent className="pb-4">
+                        {sortedTasks.length === 0 ? (
+                            <p className="text-xs text-muted-foreground font-mono text-center py-8">
+                                No{filter !== 'all' ? ` ${filter}` : ''} processes found.
+                            </p>
+                        ) : (
+                            <div className="space-y-1">
+                                {/* Sortable Header row */}
+                                <div className="grid grid-cols-12 gap-2 px-3 py-2 text-[10px] text-muted-foreground font-mono uppercase tracking-wider">
+                                    <button
+                                        onClick={() => handleSort('title')}
+                                        className="col-span-4 flex items-center gap-1 cursor-pointer hover:text-foreground transition-colors"
+                                    >
+                                        Name <SortIcon col="title" />
+                                    </button>
+                                    <button
+                                        onClick={() => handleSort('priority')}
+                                        className="col-span-1 flex items-center justify-center gap-1 cursor-pointer hover:text-foreground transition-colors"
+                                    >
+                                        PRI <SortIcon col="priority" />
+                                    </button>
+                                    <button
+                                        onClick={() => handleSort('duration')}
+                                        className="col-span-2 flex items-center justify-center gap-1 cursor-pointer hover:text-foreground transition-colors"
+                                    >
+                                        Duration <SortIcon col="duration" />
+                                    </button>
+                                    <button
+                                        onClick={() => handleSort('deadline')}
+                                        className="col-span-2 flex items-center justify-center gap-1 cursor-pointer hover:text-foreground transition-colors"
+                                    >
+                                        Deadline <SortIcon col="deadline" />
+                                    </button>
+                                    <button
+                                        onClick={() => handleSort('status')}
+                                        className="col-span-1 flex items-center justify-center gap-1 cursor-pointer hover:text-foreground transition-colors"
+                                    >
+                                        Status <SortIcon col="status" />
+                                    </button>
+                                    <span className="col-span-2 text-right">Actions</span>
                                 </div>
-                            )}
-                        </CardContent>
-                    </Card>
-                ) : (
-                    /* ─── Tasks Table ─── */
-                    <Card className="glass border-border/30">
-                        <CardHeader className="pb-3">
-                            <CardTitle className="text-sm font-medium flex items-center gap-2">
-                                <Filter className="w-4 h-4 text-muted-foreground" />
-                                {filter === 'all' ? 'All Processes' : `${filter.charAt(0).toUpperCase() + filter.slice(1)} Processes`}
-                                <span className="text-[10px] text-muted-foreground font-normal ml-auto">
-                                    {sortedTasks.length} process{sortedTasks.length !== 1 ? 'es' : ''}
-                                </span>
-                            </CardTitle>
-                        </CardHeader>
-                        <CardContent className="pb-4">
-                            {sortedTasks.length === 0 ? (
-                                <p className="text-xs text-muted-foreground font-mono text-center py-8">
-                                    No{filter !== 'all' ? ` ${filter}` : ''} processes found.
-                                </p>
-                            ) : (
-                                <div className="space-y-1">
-                                    {/* Sortable Header row */}
-                                    <div className="grid grid-cols-12 gap-2 px-3 py-2 text-[10px] text-muted-foreground font-mono uppercase tracking-wider">
-                                        <button
-                                            onClick={() => handleSort('title')}
-                                            className="col-span-4 flex items-center gap-1 cursor-pointer hover:text-foreground transition-colors"
-                                        >
-                                            Name <SortIcon col="title" />
-                                        </button>
-                                        <button
-                                            onClick={() => handleSort('priority')}
-                                            className="col-span-1 flex items-center justify-center gap-1 cursor-pointer hover:text-foreground transition-colors"
-                                        >
-                                            PRI <SortIcon col="priority" />
-                                        </button>
-                                        <button
-                                            onClick={() => handleSort('duration')}
-                                            className="col-span-2 flex items-center justify-center gap-1 cursor-pointer hover:text-foreground transition-colors"
-                                        >
-                                            Duration <SortIcon col="duration" />
-                                        </button>
-                                        <button
-                                            onClick={() => handleSort('deadline')}
-                                            className="col-span-2 flex items-center justify-center gap-1 cursor-pointer hover:text-foreground transition-colors"
-                                        >
-                                            Deadline <SortIcon col="deadline" />
-                                        </button>
-                                        <button
-                                            onClick={() => handleSort('status')}
-                                            className="col-span-1 flex items-center justify-center gap-1 cursor-pointer hover:text-foreground transition-colors"
-                                        >
-                                            Status <SortIcon col="status" />
-                                        </button>
-                                        <span className="col-span-2 text-right">Actions</span>
-                                    </div>
 
-                                    {/* Task rows */}
-                                    {sortedTasks.map((task) => (
-                                        <TaskRow
-                                            key={task.id}
-                                            task={task}
-                                            onEdit={() => handleEdit(task)}
-                                            onDelete={() => handleDeleteTask(task.id)}
-                                            onComplete={() => completeTask(task.id)}
-                                        />
-                                    ))}
-                                </div>
-                            )}
-                        </CardContent>
-                    </Card>
-                )}
+                                {/* Task rows */}
+                                {sortedTasks.map((task) => (
+                                    <TaskRow
+                                        key={task.id}
+                                        task={task}
+                                        onEdit={() => handleEdit(task)}
+                                        onDelete={() => handleDeleteTask(task.id)}
+                                        onComplete={() => completeTask(task.id)}
+                                        onRestore={() => handleRestoreTask(task.id)}
+                                    />
+                                ))}
+                            </div>
+                        )}
+                    </CardContent>
+                </Card>
             </main>
-
-            {/* Edit Modal */}
-            <FixedEventEditModal
-                event={editFixedEvent}
-                open={editFixedOpen}
-                onOpenChange={setEditFixedOpen}
-                onUpdate={updateFixedEvent}
-                onDelete={removeFixedEvent}
-            />
             <TaskEditModal
                 task={editTask}
                 open={editOpen}
@@ -324,14 +253,19 @@ function TaskRow({
     onEdit,
     onDelete,
     onComplete,
+    onRestore,
 }: {
     task: Task;
     onEdit: () => void;
     onDelete: () => void;
     onComplete: () => void;
+    onRestore: () => void;
 }) {
     const isActive = task.status === 'Pending' || task.status === 'In-Progress';
     const isOverdue = isActive && task.deadline < new Date();
+
+    const isCompleted = task.status === 'Completed';
+    const isDropped = task.status === 'Dropped';
 
     return (
         <div
@@ -389,6 +323,28 @@ function TaskRow({
                             title="Complete"
                         >
                             <CheckCircle className="w-3 h-3" />
+                        </Button>
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            className="opacity-0 group-hover:opacity-100 transition-opacity h-6 w-6 p-0 text-destructive hover:text-destructive cursor-pointer"
+                            onClick={onDelete}
+                            title="Delete"
+                        >
+                            <Trash2 className="w-3 h-3" />
+                        </Button>
+                    </>
+                )}
+                {(isCompleted || isDropped) && (
+                    <>
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            className="opacity-0 group-hover:opacity-100 transition-opacity h-6 w-6 p-0 text-primary hover:text-primary cursor-pointer"
+                            onClick={onRestore}
+                            title="Restore to Pending"
+                        >
+                            <RotateCcw className="w-3 h-3" />
                         </Button>
                         <Button
                             variant="ghost"

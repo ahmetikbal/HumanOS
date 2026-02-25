@@ -5,6 +5,7 @@
 // Maximizes daily utilization — fills days from today forward
 // Splits tasks across days when they don't fit in one day
 // Inserts break time between consecutive long tasks
+// Calendar events (one-time interrupts) block time like fixed events
 // ============================================================
 
 import {
@@ -46,14 +47,14 @@ export function formatDuration(minutes: number): string {
     return `${h}h ${m}m`;
 }
 
-// ─── Step A: Lay down Fixed blocks (user-created fixed events) ───
+// ─── Step A: Lay down Fixed + Calendar event blocks ───
 function generateFixedBlocks(
     day: Date,
     settings: UserSettings
 ): ScheduleSlot[] {
     const slots: ScheduleSlot[] = [];
 
-    // Fixed events for this day of week
+    // Recurring fixed events for this day of week
     const dayOfWeek = day.getDay(); // 0=Sunday
     const todaysFixedEvents = settings.fixedEvents.filter((e) =>
         e.days.includes(dayOfWeek)
@@ -76,6 +77,25 @@ function generateFixedBlocks(
             timeEnd: eventEnd,
             type: isSleepEvent ? 'Sleep' : 'Fixed',
             taskTitle: isSleepEvent ? `💤 ${event.title}` : event.title,
+            taskId: event.id,
+        });
+    }
+
+    // One-time calendar events for this specific date
+    const dayKey = format(day, 'yyyy-MM-dd');
+    const calendarEvents = (settings.calendarEvents || []).filter(
+        (e) => e.date === dayKey
+    );
+
+    for (const event of calendarEvents) {
+        const eventStart = parseTime(event.timeStart, day);
+        const eventEnd = parseTime(event.timeEnd, day);
+
+        slots.push({
+            timeStart: eventStart,
+            timeEnd: eventEnd,
+            type: 'Fixed',
+            taskTitle: `📅 ${event.title}`,
             taskId: event.id,
         });
     }
@@ -176,17 +196,11 @@ function categorizeTasks(tasks: Task[]): {
 // ============================================================
 // Cross-Day Greedy Bin-Packing Distribution
 // ============================================================
-// - Sort all tasks by deadline (EDF)
-// - Starting from today, fill each day to capacity
-// - When a task doesn't fully fit, split it: allocate what fits,
-//   carry the remainder to the next day
-// - Track { taskId, allocatedMinutes } per day
-// ============================================================
 
 interface TaskAllocation {
     task: Task;
     allocatedMinutes: number;
-    partIndex: number; // 0 = first part, 1 = second, etc.
+    globalPartStart: number; // Starting part number for this allocation
 }
 
 function distributeTasksGreedy(
@@ -194,17 +208,17 @@ function distributeTasksGreedy(
     schedulable: Task[],
     targetDate: Date,
     settings: UserSettings
-): { dayInterrupts: Task[]; dayAllocations: TaskAllocation[] } {
+): { dayInterrupts: Task[]; dayAllocations: (TaskAllocation & { totalParts: number })[] } {
     const today = startOfDay(new Date());
     const targetDay = startOfDay(targetDate);
 
-    // Build a list of days for up to 56 days (8 weeks) planning horizon
+    // Build planning days (56 days = 8 weeks)
     const planningDays: Date[] = [];
     for (let i = 0; i < 56; i++) {
         planningDays.push(addDays(today, i));
     }
 
-    // Compute free minutes for each day (accounting for break time between tasks)
+    // Compute free minutes for each day
     const dayFreeMinutes: Map<string, number> = new Map();
     for (const d of planningDays) {
         const fixedBlocks = generateFixedBlocks(d, settings);
@@ -216,16 +230,14 @@ function distributeTasksGreedy(
     // Track remaining capacity per day
     const remainingCapacity: Map<string, number> = new Map(dayFreeMinutes);
 
-    // Track allocations per day: dayKey -> TaskAllocation[]
+    // Track allocations per day
     const dayAllocations: Map<string, TaskAllocation[]> = new Map();
     for (const d of planningDays) {
         dayAllocations.set(format(d, 'yyyy-MM-dd'), []);
     }
 
-    // Track interrupt assignments
-    const interruptAssignment: Map<string, string> = new Map(); // taskId -> dayKey
-
-    // Assign interrupts first (small tasks, no splitting)
+    // Assign interrupts (small tasks, no splitting)
+    const interruptAssignment: Map<string, string> = new Map();
     for (const interrupt of interrupts) {
         for (const d of planningDays) {
             const dayKey = format(d, 'yyyy-MM-dd');
@@ -239,11 +251,17 @@ function distributeTasksGreedy(
     }
 
     // Assign schedulable tasks with CROSS-DAY SPLITTING
+    // Parts are numbered sequentially; label only shown if task is actually split
     const breakTime = settings.breakTimeMin || 10;
+
+    // We need to count actual context switches (slots), not just day allocations.
+    // A task allocation on a given day may be split into multiple slots by fixed events.
+    // So we do a two-pass approach:
+    //   Pass 1: Allocate minutes to days (without part numbering)
+    //   Pass 2: When filling slots, count actual context switches
 
     for (const task of schedulable) {
         let remainingDuration = task.duration;
-        let partIndex = 0;
 
         for (const d of planningDays) {
             if (remainingDuration <= 0) break;
@@ -251,10 +269,10 @@ function distributeTasksGreedy(
             const dayKey = format(d, 'yyyy-MM-dd');
             let capacity = remainingCapacity.get(dayKey) || 0;
 
-            // Account for break time if this day already has task allocations
+            // Reserve break time if day already has allocations
             const existingAllocations = dayAllocations.get(dayKey) || [];
             if (existingAllocations.length > 0 && capacity > breakTime) {
-                capacity -= breakTime; // Reserve break time
+                capacity -= breakTime;
             }
 
             if (capacity <= 0) continue;
@@ -262,35 +280,110 @@ function distributeTasksGreedy(
             const allocate = Math.min(remainingDuration, capacity);
 
             const allocs = dayAllocations.get(dayKey) || [];
-            allocs.push({ task, allocatedMinutes: allocate, partIndex });
+            allocs.push({ task, allocatedMinutes: allocate, globalPartStart: 0 });
             dayAllocations.set(dayKey, allocs);
 
-            // Deduct from capacity (allocate + break)
+            // Deduct capacity
             const totalDeducted = allocate + (existingAllocations.length > 0 ? breakTime : 0);
             remainingCapacity.set(dayKey, (remainingCapacity.get(dayKey) || 0) - totalDeducted);
 
             remainingDuration -= allocate;
-            partIndex++;
+        }
+    }
+
+    // Now simulate slot filling for ALL days to count actual context switches per task.
+    // This is needed to know totalParts accurately.
+    const taskSlotCounts: Map<string, number> = new Map(); // taskId -> total slot count
+    const taskDaySlotCounts: Map<string, number> = new Map(); // 'taskId:dayKey' -> # slots on that day
+
+    for (const d of planningDays) {
+        const dayKey = format(d, 'yyyy-MM-dd');
+        const allocs = dayAllocations.get(dayKey) || [];
+        if (allocs.length === 0) continue;
+
+        // Simulate free blocks for this day
+        const fixedBlocks = generateFixedBlocks(d, settings);
+        const freeBlocks = calculateFreeBlocks(fixedBlocks, d, settings);
+        const simFree = freeBlocks.map((b) => ({ ...b }));
+
+        // Insert interrupts first (consume free block space)
+        const dayInts = interrupts.filter((t) => interruptAssignment.get(t.id) === dayKey);
+        for (const interrupt of dayInts) {
+            for (const block of simFree) {
+                const bMin = slotDuration(block);
+                if (bMin >= interrupt.duration) {
+                    block.timeStart = addMinutes(block.timeStart, interrupt.duration);
+                    break;
+                }
+            }
+        }
+
+        const cleanSimFree = simFree.filter((b) => slotDuration(b) > 0);
+        let lastEnd: Date | null = null;
+
+        for (const alloc of allocs) {
+            let remaining = alloc.allocatedMinutes;
+            let slotsForThisAlloc = 0;
+
+            for (let i = 0; i < cleanSimFree.length && remaining > 0; i++) {
+                const block = cleanSimFree[i];
+                let blockMin = slotDuration(block);
+                if (blockMin <= 0) continue;
+
+                if (lastEnd && block.timeStart.getTime() === lastEnd.getTime()) {
+                    const br = Math.min(breakTime, blockMin);
+                    block.timeStart = addMinutes(block.timeStart, br);
+                    blockMin -= br;
+                    if (blockMin <= 0) continue;
+                }
+
+                const take = Math.min(remaining, blockMin);
+                const end = addMinutes(block.timeStart, take);
+                slotsForThisAlloc++;
+                block.timeStart = end;
+                lastEnd = end;
+                remaining -= take;
+            }
+
+            const prev = taskSlotCounts.get(alloc.task.id) || 0;
+            taskSlotCounts.set(alloc.task.id, prev + slotsForThisAlloc);
+            taskDaySlotCounts.set(`${alloc.task.id}:${dayKey}`, slotsForThisAlloc);
+        }
+    }
+
+    // Now assign globalPartStart for each allocation based on cumulative slot counts
+    const taskPartCounter: Map<string, number> = new Map();
+    for (const d of planningDays) {
+        const dayKey = format(d, 'yyyy-MM-dd');
+        const allocs = dayAllocations.get(dayKey) || [];
+        for (const alloc of allocs) {
+            const currentPart = (taskPartCounter.get(alloc.task.id) || 0) + 1;
+            alloc.globalPartStart = currentPart;
+            const slotsOnDay = taskDaySlotCounts.get(`${alloc.task.id}:${dayKey}`) || 1;
+            taskPartCounter.set(alloc.task.id, currentPart + slotsOnDay - 1);
         }
     }
 
     // Return allocations for the target day
     const targetKey = format(targetDay, 'yyyy-MM-dd');
-
     const dayInterrupts = interrupts.filter(
         (t) => interruptAssignment.get(t.id) === targetKey
     );
-
     const targetAllocations = dayAllocations.get(targetKey) || [];
+    // Attach total slot counts
+    const enrichedAllocations = targetAllocations.map((a) => ({
+        ...a,
+        totalParts: taskSlotCounts.get(a.task.id) || 1,
+    }));
 
-    return { dayInterrupts, dayAllocations: targetAllocations };
+    return { dayInterrupts, dayAllocations: enrichedAllocations };
 }
 
 // ─── Fill free blocks for a single day with allocated task durations ───
 function fillDaySchedule(
     freeBlocks: ScheduleSlot[],
     dayInterrupts: Task[],
-    dayAllocations: TaskAllocation[],
+    dayAllocations: (TaskAllocation & { totalParts: number })[],
     settings: UserSettings
 ): ScheduleSlot[] {
     const taskSlots: ScheduleSlot[] = [];
@@ -298,7 +391,7 @@ function fillDaySchedule(
     const today = startOfDay(new Date());
     const breakTime = settings.breakTimeMin || 10;
 
-    // Insert interrupts (<=15min) into earliest free blocks (Greedy)
+    // Insert interrupts (<=15min) into earliest free blocks
     for (const interrupt of dayInterrupts) {
         for (let i = 0; i < remainingFree.length; i++) {
             const block = remainingFree[i];
@@ -329,13 +422,14 @@ function fillDaySchedule(
 
     for (const allocation of dayAllocations) {
         let remainingDuration = allocation.allocatedMinutes;
+        let slotIndex = 0; // tracks context switches within this allocation
 
         for (let i = 0; i < cleanFree.length && remainingDuration > 0; i++) {
             const block = cleanFree[i];
             let blockMinutes = slotDuration(block);
             if (blockMinutes <= 0) continue;
 
-            // Insert break if previous task just ended and this is a new task
+            // Insert break if previous task just ended
             if (lastTaskEndTime && block.timeStart.getTime() === lastTaskEndTime.getTime()) {
                 const breakAlloc = Math.min(breakTime, blockMinutes);
                 block.timeStart = addMinutes(block.timeStart, breakAlloc);
@@ -347,8 +441,10 @@ function fillDaySchedule(
             const taskEnd = addMinutes(block.timeStart, allocate);
 
             const isOverdue = isBefore(startOfDay(allocation.task.deadline), today);
-            const label = allocation.partIndex > 0
-                ? `${allocation.task.title} [Part ${allocation.partIndex + 1}]`
+            const partNumber = allocation.globalPartStart + slotIndex;
+            // Only show [Part N] if the task was actually split
+            const label = allocation.totalParts > 1
+                ? `${allocation.task.title} [Part ${partNumber}]`
                 : allocation.task.title;
 
             taskSlots.push({
@@ -364,6 +460,7 @@ function fillDaySchedule(
             block.timeStart = taskEnd;
             lastTaskEndTime = taskEnd;
             remainingDuration -= allocate;
+            slotIndex++;
         }
     }
 
@@ -378,13 +475,13 @@ export function generateSchedule(
     settings: UserSettings,
     date: Date = new Date()
 ): DaySchedule {
-    // Step A: Fixed blocks for this day
+    // Step A: Fixed + Calendar event blocks
     const fixedBlocks = generateFixedBlocks(date, settings);
 
-    // Step B: Free blocks for this day
+    // Step B: Free blocks
     const freeBlocks = calculateFreeBlocks(fixedBlocks, date, settings);
 
-    // Step C: Categorize all tasks
+    // Step C: Categorize tasks
     const { interrupts, schedulable } = categorizeTasks(tasks);
 
     // Step D: Greedy bin-packing with cross-day splitting
@@ -392,7 +489,7 @@ export function generateSchedule(
         interrupts, schedulable, date, settings
     );
 
-    // Step E: Fill this day's schedule
+    // Step E: Fill schedule
     const taskSlots = fillDaySchedule(freeBlocks, dayInterrupts, dayAllocations, settings);
 
     // Combine fixed + tasks, recalculate remaining free blocks
@@ -414,7 +511,6 @@ function recalculateFreeBlocks(
     const wakeTime = parseTime(settings.wakeTime, day);
     const bedTime = parseTime(settings.bedTime, day);
 
-    // Only include slots within awake hours (no sleep blocks in output)
     const activeSlots = usedSlots
         .filter((s) => s.type !== 'Sleep')
         .filter((s) => {

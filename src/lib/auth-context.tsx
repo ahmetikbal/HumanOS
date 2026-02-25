@@ -32,6 +32,7 @@ const DEFAULT_SETTINGS: UserSettings = {
     shiftRateMin: 15,
     panicModeActive: false,
     fixedEvents: [],
+    calendarEvents: [],
     breakTimeMin: 10,
 };
 

@@ -5,7 +5,7 @@ import { doc, onSnapshot, setDoc, deleteField } from 'firebase/firestore';
 import { getFirebaseDb } from '@/lib/firebase';
 import { useAuth } from '@/lib/auth-context';
 import { useStore } from '@/store/useStore';
-import { UserSettings, FixedEvent } from '@/types';
+import { UserSettings, FixedEvent, CalendarEvent } from '@/types';
 
 // Remove undefined values from an object (Firestore rejects undefined)
 function stripUndefined(obj: Record<string, unknown>): Record<string, unknown> {
@@ -55,19 +55,17 @@ export function useSettings() {
         updateSettingsStore(updates);
     };
 
-    // Add a fixed event
+    // ─── Fixed Events ───
     const addFixedEvent = async (event: FixedEvent) => {
         const updatedEvents = [...settings.fixedEvents, event];
         await updateSettings({ fixedEvents: updatedEvents });
     };
 
-    // Remove a fixed event
     const removeFixedEvent = async (eventId: string) => {
         const updatedEvents = settings.fixedEvents.filter((e) => e.id !== eventId);
         await updateSettings({ fixedEvents: updatedEvents });
     };
 
-    // Update a fixed event
     const updateFixedEvent = async (eventId: string, updates: Partial<FixedEvent>) => {
         const updatedEvents = settings.fixedEvents.map((e) =>
             e.id === eventId ? { ...e, ...updates } : e
@@ -75,5 +73,34 @@ export function useSettings() {
         await updateSettings({ fixedEvents: updatedEvents });
     };
 
-    return { settings, updateSettings, addFixedEvent, removeFixedEvent, updateFixedEvent };
+    // ─── Calendar Events (one-time interrupts) ───
+    const addCalendarEvent = async (event: CalendarEvent) => {
+        const current = settings.calendarEvents || [];
+        await updateSettings({ calendarEvents: [...current, event] });
+    };
+
+    const removeCalendarEvent = async (eventId: string) => {
+        const current = settings.calendarEvents || [];
+        await updateSettings({ calendarEvents: current.filter((e) => e.id !== eventId) });
+    };
+
+    const updateCalendarEvent = async (eventId: string, updates: Partial<CalendarEvent>) => {
+        const current = settings.calendarEvents || [];
+        await updateSettings({
+            calendarEvents: current.map((e) =>
+                e.id === eventId ? { ...e, ...updates } : e
+            ),
+        });
+    };
+
+    return {
+        settings,
+        updateSettings,
+        addFixedEvent,
+        removeFixedEvent,
+        updateFixedEvent,
+        addCalendarEvent,
+        removeCalendarEvent,
+        updateCalendarEvent,
+    };
 }
