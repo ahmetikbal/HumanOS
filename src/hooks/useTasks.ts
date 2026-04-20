@@ -29,6 +29,7 @@ export function useTasks() {
         const tasksRef = collection(db, 'users', user.uid, 'tasks');
         const q = query(tasksRef);
 
+        let unsubscribed = false;
         const unsubscribe = onSnapshot(q, (snapshot) => {
             const tasksData: Task[] = snapshot.docs.map((docSnap) => {
                 const data = docSnap.data();
@@ -48,10 +49,16 @@ export function useTasks() {
             });
             setTasks(tasksData);
         }, (error) => {
-            console.error('Firestore tasks subscription error:', error);
+            // Gracefully handle permission errors — unsubscribe to prevent cascade
+            if (error.code === 'permission-denied') {
+                console.warn('Firestore permission denied for tasks. Unsubscribing listener.');
+                if (!unsubscribed) { unsubscribed = true; unsubscribe(); }
+            } else {
+                console.error('Firestore tasks subscription error:', error);
+            }
         });
 
-        return () => unsubscribe();
+        return () => { unsubscribed = true; unsubscribe(); };
     }, [user, setTasks]);
 
     // Add a new task

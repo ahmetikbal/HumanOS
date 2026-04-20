@@ -34,14 +34,22 @@ export function useSettings() {
 
         const userDocRef = doc(db, 'users', user.uid);
 
+        let unsubscribed = false;
         const unsubscribe = onSnapshot(userDocRef, (snapshot) => {
             const data = snapshot.data();
             if (data?.settings) {
                 setSettings(data.settings as UserSettings);
             }
+        }, (error) => {
+            if ((error as { code?: string }).code === 'permission-denied') {
+                console.warn('Firestore permission denied for settings. Unsubscribing listener.');
+                if (!unsubscribed) { unsubscribed = true; unsubscribe(); }
+            } else {
+                console.error('Firestore settings subscription error:', error);
+            }
         });
 
-        return () => unsubscribe();
+        return () => { unsubscribed = true; unsubscribe(); };
     }, [user, setSettings]);
 
     // Update settings in Firestore
