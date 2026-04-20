@@ -5,13 +5,14 @@ import {
     doc,
     setDoc,
     getDocs,
+    deleteDoc,
     Timestamp,
     writeBatch,
 } from 'firebase/firestore';
 import { getFirebaseDb } from './firebase';
 import { addDays, setHours, setMinutes } from 'date-fns';
 
-// ─── Turkish Dummy Tasks (10-15 days spread) ───
+// ─── Demo Tasks (matching the desired process list) ───
 
 interface DemoTask {
     title: string;
@@ -19,105 +20,105 @@ interface DemoTask {
     duration: number; // minutes
     deadlineDaysFromNow: number;
     priority: 'Low' | 'Medium' | 'High';
-    status: 'Pending' | 'In-Progress';
+    status: 'Pending' | 'In-Progress' | 'Completed';
 }
 
 const DEMO_TASKS: DemoTask[] = [
     {
-        title: 'Mezuniyet Projesi Raporu',
-        description: 'Projenin teknik detaylarını ve sonuçları belgelemek.',
-        duration: 180,
-        deadlineDaysFromNow: 12,
-        priority: 'High',
-        status: 'In-Progress',
+        title: 'Build alınıp Play Store\'a gönderilecek',
+        description: 'Release build oluşturup Play Store\'a yüklemek.',
+        duration: 30,
+        deadlineDaysFromNow: 0,
+        priority: 'Medium',
+        status: 'Completed',
     },
     {
-        title: 'Mobil Uygulama UI Tasarımı',
-        description: 'Figma üzerinde ana ekranların wireframe ve hi-fi tasarımlarını yapmak.',
-        duration: 120,
-        deadlineDaysFromNow: 5,
+        title: 'Kod Review — Backend',
+        description: 'Takım arkadaşının backend PR\'ını incelemek ve feedback vermek.',
+        duration: 40,
+        deadlineDaysFromNow: 0,
         priority: 'High',
         status: 'Pending',
     },
     {
         title: 'Sunum Hazırlığı',
-        description: 'Etkinlik için proje sunumunu oluşturmak, demo videosu hazırlamak.',
-        duration: 90,
-        deadlineDaysFromNow: 2,
+        description: 'Etkinlik için proje sunumunu hazırlamak, demo videosu çekmek.',
+        duration: 150,
+        deadlineDaysFromNow: 1,
         priority: 'High',
         status: 'In-Progress',
     },
     {
+        title: 'CV Güncelleme',
+        description: 'Yeni becerileri ve projeleri CV\'ye eklemek.',
+        duration: 120,
+        deadlineDaysFromNow: 2,
+        priority: 'Medium',
+        status: 'Pending',
+    },
+    {
+        title: 'Mobil Uygulama UI Tasarımı',
+        description: 'Figma üzerinde ana ekranların wireframe ve hi-fi tasarımlarını yapmak.',
+        duration: 360,
+        deadlineDaysFromNow: 4,
+        priority: 'High',
+        status: 'Pending',
+    },
+    {
         title: 'Veritabanı Optimizasyonu',
         description: 'Firestore sorgu performansını artırmak, gereksiz okuma/yazmaları azaltmak.',
-        duration: 60,
-        deadlineDaysFromNow: 7,
+        duration: 300,
+        deadlineDaysFromNow: 6,
         priority: 'Medium',
         status: 'Pending',
     },
     {
         title: 'API Entegrasyonu',
         description: 'Üçüncü parti takvim API entegrasyonunu tamamlamak.',
-        duration: 150,
-        deadlineDaysFromNow: 8,
+        duration: 180,
+        deadlineDaysFromNow: 7,
         priority: 'Medium',
-        status: 'Pending',
-    },
-    {
-        title: 'Birim Testleri Yazımı',
-        description: 'Scheduler ve panic-mode modülleri için birim testleri yazmak.',
-        duration: 100,
-        deadlineDaysFromNow: 10,
-        priority: 'Medium',
-        status: 'Pending',
-    },
-    {
-        title: 'Araştırma Makalesi Okuma',
-        description: 'EDF scheduling üzerine 3 akademik makaleyi okuyup not almak.',
-        duration: 90,
-        deadlineDaysFromNow: 14,
-        priority: 'Low',
-        status: 'Pending',
-    },
-    {
-        title: 'Portfolyo Web Sitesi',
-        description: 'Kişisel portfolyo sitesini güncellemek, son projeleri eklemek.',
-        duration: 120,
-        deadlineDaysFromNow: 11,
-        priority: 'Low',
-        status: 'Pending',
-    },
-    {
-        title: 'CV Güncelleme',
-        description: 'Yeni becerileri ve projeleri CV\'ye eklemek.',
-        duration: 45,
-        deadlineDaysFromNow: 3,
-        priority: 'Medium',
-        status: 'Pending',
-    },
-    {
-        title: 'Kod Review — Backend',
-        description: 'Takım arkadaşının backend PR\'ını incelemek ve feedback vermek.',
-        duration: 40,
-        deadlineDaysFromNow: 1,
-        priority: 'High',
         status: 'Pending',
     },
     {
         title: 'Docker Konfigürasyonu',
         description: 'Projeyi dockerize etmek, docker-compose dosyasını oluşturmak.',
         duration: 75,
-        deadlineDaysFromNow: 9,
+        deadlineDaysFromNow: 8,
         priority: 'Low',
         status: 'Pending',
     },
     {
-        title: 'Haftalık Retrospektif Notu',
-        description: 'Bu haftanın kazanımlarını ve gelecek haftanın plan notlarını yazmak.',
-        duration: 30,
-        deadlineDaysFromNow: 1,
+        title: 'Unit Test Yazımı',
+        description: 'Scheduler ve panic-mode modülleri için birim testleri yazmak.',
+        duration: 220,
+        deadlineDaysFromNow: 9,
         priority: 'Medium',
         status: 'Pending',
+    },
+    {
+        title: 'Portfolyo Web Sitesi Yapımı',
+        description: 'Kişisel portfolyo sitesini güncellemek, son projeleri eklemek.',
+        duration: 600,
+        deadlineDaysFromNow: 10,
+        priority: 'Low',
+        status: 'Pending',
+    },
+    {
+        title: 'Makale Okuma',
+        description: 'EDF scheduling üzerine 3 akademik makaleyi okuyup not almak.',
+        duration: 150,
+        deadlineDaysFromNow: 13,
+        priority: 'Low',
+        status: 'Pending',
+    },
+    {
+        title: 'Bitirme Projesi Raporu',
+        description: 'Projenin teknik detaylarını ve sonuçları belgelemek.',
+        duration: 300,
+        deadlineDaysFromNow: 14,
+        priority: 'High',
+        status: 'In-Progress',
     },
 ];
 
@@ -207,12 +208,21 @@ export async function seedDemoData(userId: string): Promise<void> {
     const db = getFirebaseDb();
     if (!db) throw new Error('Database not initialized');
 
-    // Check if demo data already exists
     const tasksCol = collection(db, 'users', userId, 'tasks');
     const existingTasks = await getDocs(tasksCol);
+
+    // In production: always force-reseed so every demo visitor gets fresh data
+    // In development: only seed if no tasks exist (so dev edits persist)
+    const isProduction = process.env.NODE_ENV === 'production';
+
     if (!existingTasks.empty) {
-        // Demo data already seeded
-        return;
+        if (!isProduction) {
+            // Dev mode: keep existing data (user edits persist)
+            return;
+        }
+        // Production: delete existing tasks and reseed
+        const deletePromises = existingTasks.docs.map(d => deleteDoc(d.ref));
+        await Promise.all(deletePromises);
     }
 
     const now = new Date();
@@ -231,6 +241,7 @@ export async function seedDemoData(userId: string): Promise<void> {
             status: task.status,
             isFixed: false,
             createdAt: Timestamp.now(),
+            ...(task.status === 'Completed' ? { completedAt: Timestamp.now() } : {}),
         });
     }
 

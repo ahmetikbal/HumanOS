@@ -67,11 +67,16 @@ export function useTasks() {
         const db = getFirebaseDb();
         if (!db) throw new Error('Database not initialized');
         const tasksRef = collection(db, 'users', user.uid, 'tasks');
-        await addDoc(tasksRef, {
+        // Strip undefined values — Firestore rejects them
+        const taskData: Record<string, unknown> = {
             ...task,
             deadline: Timestamp.fromDate(task.deadline),
             createdAt: Timestamp.now(),
+        };
+        Object.keys(taskData).forEach(key => {
+            if (taskData[key] === undefined) delete taskData[key];
         });
+        await addDoc(tasksRef, taskData);
     };
 
     // Update a task
