@@ -15,7 +15,7 @@ import { UserSettings } from '@/types';
 
 // Fixed Firestore path for demo data — all demo users share this path
 // so data persists across anonymous auth sessions
-export const DEMO_FIRESTORE_UID = '__demo__';
+export const DEMO_FIRESTORE_UID = 'demo-user';
 
 interface AuthContextType {
     user: User | null;
