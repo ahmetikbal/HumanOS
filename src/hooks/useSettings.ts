@@ -23,16 +23,16 @@ function stripUndefined(obj: Record<string, unknown>): Record<string, unknown> {
 }
 
 export function useSettings() {
-    const { user } = useAuth();
+    const { user, effectiveUid } = useAuth();
     const { settings, setSettings, updateSettings: updateSettingsStore } = useStore();
 
     // Subscribe to user settings
     useEffect(() => {
-        if (!user) return;
+        if (!user || !effectiveUid) return;
         const db = getFirebaseDb();
         if (!db) return;
 
-        const userDocRef = doc(db, 'users', user.uid);
+        const userDocRef = doc(db, 'users', effectiveUid);
 
         let unsubscribed = false;
         const unsubscribe = onSnapshot(userDocRef, (snapshot) => {
@@ -50,14 +50,14 @@ export function useSettings() {
         });
 
         return () => { unsubscribed = true; unsubscribe(); };
-    }, [user, setSettings]);
+    }, [user, effectiveUid, setSettings]);
 
     // Update settings in Firestore
     const updateSettings = async (updates: Partial<UserSettings>) => {
-        if (!user) return;
+        if (!user || !effectiveUid) return;
         const db = getFirebaseDb();
         if (!db) return;
-        const userDocRef = doc(db, 'users', user.uid);
+        const userDocRef = doc(db, 'users', effectiveUid);
         const newSettings = stripUndefined({ ...settings, ...updates } as unknown as Record<string, unknown>) as unknown as UserSettings;
         await setDoc(userDocRef, { settings: newSettings }, { merge: true });
         updateSettingsStore(updates);

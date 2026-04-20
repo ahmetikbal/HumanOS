@@ -17,16 +17,16 @@ import { useStore } from '@/store/useStore';
 import { Task, Priority, TaskStatus } from '@/types';
 
 export function useTasks() {
-    const { user } = useAuth();
+    const { user, effectiveUid } = useAuth();
     const { tasks, setTasks, updateTask: updateTaskStore, deleteTask: deleteTaskStore } = useStore();
 
     // Subscribe to tasks collection
     useEffect(() => {
-        if (!user) return;
+        if (!user || !effectiveUid) return;
         const db = getFirebaseDb();
         if (!db) return;
 
-        const tasksRef = collection(db, 'users', user.uid, 'tasks');
+        const tasksRef = collection(db, 'users', effectiveUid, 'tasks');
         const q = query(tasksRef);
 
         let unsubscribed = false;
@@ -59,14 +59,14 @@ export function useTasks() {
         });
 
         return () => { unsubscribed = true; unsubscribe(); };
-    }, [user, setTasks]);
+    }, [user, effectiveUid, setTasks]);
 
     // Add a new task
     const addTask = async (task: Omit<Task, 'id' | 'createdAt'>) => {
-        if (!user) throw new Error('Not authenticated');
+        if (!user || !effectiveUid) throw new Error('Not authenticated');
         const db = getFirebaseDb();
         if (!db) throw new Error('Database not initialized');
-        const tasksRef = collection(db, 'users', user.uid, 'tasks');
+        const tasksRef = collection(db, 'users', effectiveUid, 'tasks');
         // Strip undefined values — Firestore rejects them
         const taskData: Record<string, unknown> = {
             ...task,
@@ -81,10 +81,10 @@ export function useTasks() {
 
     // Update a task
     const updateTask = async (id: string, updates: Partial<Task>) => {
-        if (!user) return;
+        if (!user || !effectiveUid) return;
         const db = getFirebaseDb();
         if (!db) return;
-        const taskRef = doc(db, 'users', user.uid, 'tasks', id);
+        const taskRef = doc(db, 'users', effectiveUid, 'tasks', id);
         const firestoreUpdates: Record<string, unknown> = { ...updates };
         if (updates.deadline) {
             firestoreUpdates.deadline = Timestamp.fromDate(updates.deadline);
@@ -102,7 +102,7 @@ export function useTasks() {
 
     // Batch update tasks (for Panic Mode)
     const batchUpdateTasks = async (updatedTasks: Task[]) => {
-        if (!user) return;
+        if (!user || !effectiveUid) return;
         const db = getFirebaseDb();
         if (!db) return;
 
@@ -128,10 +128,10 @@ export function useTasks() {
 
     // Delete a task
     const deleteTask = async (id: string) => {
-        if (!user) return;
+        if (!user || !effectiveUid) return;
         const db = getFirebaseDb();
         if (!db) return;
-        const taskRef = doc(db, 'users', user.uid, 'tasks', id);
+        const taskRef = doc(db, 'users', effectiveUid, 'tasks', id);
         await deleteDoc(taskRef);
         deleteTaskStore(id);
     };

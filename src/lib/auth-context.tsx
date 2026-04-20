@@ -13,10 +13,16 @@ import { getFirebaseAuth, getFirebaseDb, googleProvider } from './firebase';
 import { seedDemoData } from './demo-data';
 import { UserSettings } from '@/types';
 
+// Fixed Firestore path for demo data — all demo users share this path
+// so data persists across anonymous auth sessions
+export const DEMO_FIRESTORE_UID = '__demo__';
+
 interface AuthContextType {
     user: User | null;
     loading: boolean;
     isDemoUser: boolean;
+    /** The UID to use for Firestore paths — demo users get a fixed ID */
+    effectiveUid: string | null;
     signInWithGoogle: () => Promise<void>;
     signInAsDemo: () => Promise<void>;
     signOut: () => Promise<void>;
@@ -26,6 +32,7 @@ const AuthContext = createContext<AuthContextType>({
     user: null,
     loading: true,
     isDemoUser: false,
+    effectiveUid: null,
     signInWithGoogle: async () => { },
     signInAsDemo: async () => { },
     signOut: async () => { },
@@ -47,6 +54,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const [loading, setLoading] = useState(true);
     const [isDemoUser, setIsDemoUser] = useState(false);
 
+    const effectiveUid = user
+        ? (isDemoUser ? DEMO_FIRESTORE_UID : user.uid)
+        : null;
+
     useEffect(() => {
         const auth = getFirebaseAuth();
         if (!auth) {
@@ -59,7 +70,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             setIsDemoUser(user?.isAnonymous ?? false);
             setLoading(false);
 
-            // Create default user settings document if first login
+            // Create default user settings document if first login (non-demo)
             if (user && !user.isAnonymous) {
                 const db = getFirebaseDb();
                 if (db) {
@@ -92,10 +103,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const auth = getFirebaseAuth();
         if (!auth) return;
         try {
-            const result = await signInAnonymously(auth);
+            await signInAnonymously(auth);
             setIsDemoUser(true);
-            // Seed demo data for this anonymous user
-            await seedDemoData(result.user.uid);
+            // Seed demo data using the fixed demo path
+            await seedDemoData(DEMO_FIRESTORE_UID);
         } catch (error) {
             console.error('Demo sign-in error:', error);
         }
@@ -113,7 +124,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
 
     return (
-        <AuthContext.Provider value={{ user, loading, isDemoUser, signInWithGoogle, signInAsDemo, signOut }}>
+        <AuthContext.Provider value={{ user, loading, isDemoUser, effectiveUid, signInWithGoogle, signInAsDemo, signOut }}>
             {children}
         </AuthContext.Provider>
     );
