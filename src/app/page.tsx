@@ -2,7 +2,7 @@
 
 import { useAuth } from '@/lib/auth-context';
 import { useRouter } from 'next/navigation';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import {
   Cpu,
@@ -10,17 +10,28 @@ import {
   Shield,
   ArrowRight,
   Terminal,
+  Play,
 } from 'lucide-react';
 
 export default function HomePage() {
-  const { user, loading, signInWithGoogle } = useAuth();
+  const { user, loading, signInWithGoogle, signInAsDemo } = useAuth();
   const router = useRouter();
+  const [demoLoading, setDemoLoading] = useState(false);
 
   useEffect(() => {
     if (!loading && user) {
       router.push('/dashboard');
     }
   }, [user, loading, router]);
+
+  const handleDemo = async () => {
+    setDemoLoading(true);
+    try {
+      await signInAsDemo();
+    } finally {
+      setDemoLoading(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -102,17 +113,39 @@ export default function HomePage() {
         </div>
 
         {/* CTA */}
-        <Button
-          size="lg"
-          onClick={signInWithGoogle}
-          className="mt-4 px-8 py-6 text-base font-semibold rounded-xl glow-primary hover:scale-105 transition-transform duration-200 cursor-pointer"
-        >
-          Boot System
-          <ArrowRight className="w-5 h-5 ml-2" />
-        </Button>
+        <div className="flex flex-col items-center gap-3 mt-4">
+          <Button
+            size="lg"
+            onClick={signInWithGoogle}
+            className="px-8 py-6 text-base font-semibold rounded-xl glow-primary hover:scale-105 transition-transform duration-200 cursor-pointer"
+          >
+            Boot System
+            <ArrowRight className="w-5 h-5 ml-2" />
+          </Button>
+
+          <Button
+            size="lg"
+            variant="outline"
+            onClick={handleDemo}
+            disabled={demoLoading}
+            className="px-8 py-5 text-sm font-medium rounded-xl border-primary/30 text-primary hover:bg-primary/10 hover:scale-105 transition-all duration-200 cursor-pointer gap-2"
+          >
+            {demoLoading ? (
+              <>
+                <Cpu className="w-4 h-4 animate-spin" />
+                Loading demo...
+              </>
+            ) : (
+              <>
+                <Play className="w-4 h-4" />
+                Try Demo
+              </>
+            )}
+          </Button>
+        </div>
 
         <p className="text-xs text-muted-foreground/60 font-mono">
-          Sign in with Google to initialize your kernel
+          Sign in with Google or try the demo with pre-loaded data
         </p>
       </div>
 
